@@ -138,6 +138,7 @@ export interface RCAAnalyzeRequest {
   namespace: string; // Kubernetes命名空间
   time_window_hours: number; // 分析时间窗口（小时）
   metrics?: string[]; // 要分析的Prometheus指标列表
+  kube_config?: string; // 目标集群 kubeconfig
 }
 
 /**
@@ -177,6 +178,7 @@ export interface RCALogsDataRequest {
  */
 export interface RCAQuickDiagnosisRequest {
   namespace: string; // Kubernetes命名空间
+  kube_config?: string;
 }
 
 /**
@@ -185,6 +187,7 @@ export interface RCAQuickDiagnosisRequest {
 export interface RCAEventPatternsRequest {
   namespace: string; // Kubernetes命名空间
   hours: number; // 分析时间范围（小时）
+  kube_config?: string;
 }
 
 /**
@@ -193,6 +196,7 @@ export interface RCAEventPatternsRequest {
 export interface RCAErrorSummaryRequest {
   namespace: string; // Kubernetes命名空间
   hours: number; // 分析时间范围（小时）
+  kube_config?: string;
 }
 
 /**
@@ -209,6 +213,13 @@ export interface RCAAnalysisResponse {
   recommendations: string[];
   confidence_score: number;
   status: string;
+  data_completeness?: {
+    metrics?: { available?: boolean; count?: number; quality_score?: number };
+    events?: { available?: boolean; count?: number; critical_events?: number };
+    logs?: { available?: boolean; count?: number; error_logs?: number };
+    overall_score?: number;
+    data_sources_available?: number;
+  };
 }
 
 /**

@@ -369,6 +369,7 @@
                 :min="0"
                 :max="100000"
                 :step="100"
+                string-mode
                 style="width: 100%"
               />
               <div style="color: #999; font-size: 12px; margin-top: 4px;">建议值: 500-2000m</div>
@@ -383,6 +384,7 @@
                 :min="0"
                 :max="100000"
                 :step="100"
+                string-mode
                 style="width: 100%"
               />
               <div style="color: #999; font-size: 12px; margin-top: 4px;">建议值: 1000-8000m</div>
@@ -400,6 +402,7 @@
                 :min="0"
                 :max="1048576"
                 :step="256"
+                string-mode
                 style="width: 100%"
               />
               <div style="color: #999; font-size: 12px; margin-top: 4px;">建议值: 512-4096Mi</div>
@@ -414,6 +417,7 @@
                 :min="0"
                 :max="1048576"
                 :step="256"
+                string-mode
                 style="width: 100%"
               />
               <div style="color: #999; font-size: 12px; margin-top: 4px;">建议值: 2048-16384Mi</div>
@@ -432,7 +436,7 @@
               :rows="6" 
               placeholder="请粘贴完整的 kubeconfig 内容..."
               class="form-input"
-              :maxlength="10000"
+              :maxlength="100000"
               show-count
             />
           </a-spin>

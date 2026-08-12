@@ -31,14 +31,32 @@
       <a-col :xs="24" :lg="7">
         <a-card title="分析配置" class="config-card">
           <a-form :model="formData" layout="vertical">
-            <a-form-item label="Kubernetes命名空间" name="namespace" required>
-              <a-input
-                v-model:value="formData.namespace"
-                placeholder="输入要分析的K8s命名空间"
-                :status="!formData.namespace ? 'warning' : ''"
+            <a-form-item label="Kubernetes 集群" required>
+              <a-select
+                v-model:value="clusterId"
+                placeholder="选择要分析的集群"
+                :loading="clustersLoading"
+                :options="clusterOptions"
+                show-search
+                option-filter-prop="label"
+                :status="!clusterId ? 'warning' : ''"
               />
-              <div v-if="!formData.namespace" class="form-error">
-                请输入Kubernetes命名空间
+              <div class="form-hint">来自 cluster 管理中已接入的集群</div>
+            </a-form-item>
+
+            <a-form-item label="Kubernetes命名空间" required>
+              <a-select
+                v-model:value="namespace"
+                placeholder="先选择集群，再选择命名空间"
+                :loading="namespacesLoading"
+                :disabled="!clusterId"
+                :options="namespaceOptions"
+                show-search
+                option-filter-prop="label"
+                :status="!namespace ? 'warning' : ''"
+              />
+              <div v-if="!clusterId" class="form-error">
+                请先选择 Kubernetes 集群
               </div>
             </a-form-item>
 
@@ -103,6 +121,21 @@
               <ExclamationCircleOutlined v-else />
             </template>
           </a-statistic>
+
+          <div class="source-summary">
+            <div class="source-row">
+              <span>Prometheus 指标</span>
+              <strong>{{ analysisResult?.data_completeness?.metrics?.count ?? 0 }}</strong>
+            </div>
+            <div class="source-row">
+              <span>K8s 事件</span>
+              <strong>{{ analysisResult?.data_completeness?.events?.count ?? 0 }}</strong>
+            </div>
+            <div class="source-row">
+              <span>错误日志</span>
+              <strong>{{ analysisResult?.data_completeness?.logs?.count ?? 0 }}</strong>
+            </div>
+          </div>
         </a-card>
       </a-col>
 
@@ -159,6 +192,12 @@
                   <a-row :gutter="16">
                     <a-col :span="8">
                       <div class="meta-item">
+                        <span class="meta-label">集群</span>
+                        <span class="meta-value">{{ selectedCluster?.name || '-' }}</span>
+                      </div>
+                    </a-col>
+                    <a-col :span="8">
+                      <div class="meta-item">
                         <span class="meta-label">命名空间</span>
                         <span class="meta-value">{{ analysisResult?.namespace }}</span>
                       </div>
@@ -167,12 +206,6 @@
                       <div class="meta-item">
                         <span class="meta-label">时间窗口</span>
                         <span class="meta-value">{{ analysisResult?.time_window_hours }}小时</span>
-                      </div>
-                    </a-col>
-                    <a-col :span="8">
-                      <div class="meta-item">
-                        <span class="meta-label">分析时间</span>
-                        <span class="meta-value">{{ formatShortTime(analysisResult?.timestamp) }}</span>
                       </div>
                     </a-col>
                   </a-row>
@@ -349,10 +382,20 @@
             <!-- 相关性分析标签页 -->
             <a-tab-pane key="correlations" tab="相关性分析">
               <div class="tab-content">
-                <div v-if="hasCorrelations()" class="correlations-list">
+                <div v-if="isEmptyAnalysis" class="empty-analysis">
+                  <a-result
+                    :status="isDataInsufficient ? 'warning' : 'success'"
+                    :title="isDataInsufficient ? '数据源不足，无法定位根因' : '未发现需要处理的异常'"
+                    :sub-title="emptyAnalysisSubtitle"
+                  />
+                  <ul class="empty-analysis-reasons">
+                    <li v-for="reason in emptyAnalysisReasons" :key="reason">{{ reason }}</li>
+                  </ul>
+                </div>
+                <div v-else-if="realCorrelations.length" class="correlations-list">
                   <div 
-                    v-for="(correlation, index) in analysisResult?.correlations || []" 
-                    :key="index" 
+                    v-for="(correlation, index) in realCorrelations" 
+                    :key="index"
                     class="correlation-card"
                   >
                     <div class="correlation-header">
@@ -405,23 +448,30 @@
             <!-- 修复建议标签页 -->
             <a-tab-pane key="recommendations" tab="修复建议">
               <div class="tab-content">
-                <div v-if="analysisResult?.recommendations?.length" class="recommendations-list">
+                <div v-if="displayRecommendations.length" class="recommendations-list">
                   <div 
-                    v-for="(rec, index) in analysisResult?.recommendations || []" 
+                    v-for="(rec, index) in displayRecommendations" 
                     :key="index"
                     class="recommendation-card"
+                    :class="{ completed: completedRecIndexes.includes(index) }"
                   >
                     <div class="rec-header">
                       <div class="rec-number">
                         <BulbOutlined />
                         <span>建议 {{ index + 1 }}</span>
                       </div>
-                      <a-tag color="green">推荐</a-tag>
+                      <a-tag :color="completedRecIndexes.includes(index) ? 'default' : 'green'">
+                        {{ completedRecIndexes.includes(index) ? '已完成' : '推荐' }}
+                      </a-tag>
                     </div>
                     <div class="rec-content">{{ rec }}</div>
                     <div class="rec-actions">
-                      <a-button type="link" size="small">查看详情</a-button>
-                      <a-button type="link" size="small">标记完成</a-button>
+                      <a-button type="link" size="small" @click="openRecommendationDetail(rec, index)">
+                        查看详情
+                      </a-button>
+                      <a-button type="link" size="small" @click="toggleRecommendationDone(index)">
+                        {{ completedRecIndexes.includes(index) ? '取消完成' : '标记完成' }}
+                      </a-button>
                     </div>
                   </div>
                 </div>
@@ -441,6 +491,14 @@
         </a-card>
       </a-col>
     </a-row>
+
+    <a-modal
+      v-model:open="recommendationDetailVisible"
+      :title="`建议 ${(recommendationDetailIndex ?? 0) + 1} 详情`"
+      :footer="null"
+    >
+      <p class="rec-detail-text">{{ recommendationDetailContent }}</p>
+    </a-modal>
   </div>
 </template>
 
@@ -478,6 +536,7 @@ import {
   type RCAAnalyzeRequest,
   type RCAAnalysisResponse
 } from '../../api/core/aiops/rca';
+import { useRcaClusterNamespace } from './useRcaClusterNamespace';
 
 // 响应式数据
 const analyzing = ref(false);
@@ -494,12 +553,98 @@ let eventsChart: echarts.ECharts | null = null;
 let clustersChart: echarts.ECharts | null = null;
 let errorLogsChart: echarts.ECharts | null = null;
 
+const {
+  clusters,
+  namespaces,
+  clustersLoading,
+  namespacesLoading,
+  clusterId,
+  namespace,
+  selectedCluster,
+  getSelectedKubeConfig,
+} = useRcaClusterNamespace();
+
+const clusterOptions = computed(() =>
+  clusters.value.map((item) => ({
+    label: item.api_server_addr
+      ? `${item.name} (${item.api_server_addr})`
+      : item.name,
+    value: item.id,
+  })),
+);
+
+const namespaceOptions = computed(() =>
+  namespaces.value.map((item) => ({
+    label: item.name,
+    value: item.name,
+  })),
+);
+
 // 表单数据
 const formData = reactive({
-  namespace: 'default',
   timeWindowHours: 2,
   metrics: [] as string[]
 });
+
+const completedRecIndexes = ref<number[]>([]);
+const recommendationDetailVisible = ref(false);
+const recommendationDetailContent = ref('');
+const recommendationDetailIndex = ref<number | null>(null);
+
+const PROMPT_ECHO_PATTERNS = [
+  /<think/i,
+  /用户要求/,
+  /每个建议不超过/,
+  /按优先级排序/,
+  /只返回建议/,
+  /不要额外说明/,
+  /如果没有根因/,
+  /生成通用/,
+  /建议要具体/,
+  /^要求[:：]/,
+  /^通用运维建议$/,
+];
+
+const FALLBACK_RECOMMENDATIONS = [
+  '检查目标命名空间的 Pod 状态与近期事件',
+  '核对资源配额、Limit 和节点压力',
+  '查看近期配置变更与发布记录',
+];
+
+const sanitizeRecommendations = (items: string[] | undefined): string[] => {
+  if (!items?.length) {
+    return [];
+  }
+  return items
+    .map((item) =>
+      item
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/<think>[\s\S]*/gi, '')
+        .trim(),
+    )
+    .filter((item) => item.length >= 6 && !PROMPT_ECHO_PATTERNS.some((pattern) => pattern.test(item)));
+};
+
+const displayRecommendations = computed(() => {
+  const cleaned = sanitizeRecommendations(analysisResult.value?.recommendations);
+  return cleaned.length > 0 ? cleaned : (analysisResult.value ? FALLBACK_RECOMMENDATIONS : []);
+});
+
+const openRecommendationDetail = (content: string, index: number) => {
+  recommendationDetailContent.value = content;
+  recommendationDetailIndex.value = index;
+  recommendationDetailVisible.value = true;
+};
+
+const toggleRecommendationDone = (index: number) => {
+  if (completedRecIndexes.value.includes(index)) {
+    completedRecIndexes.value = completedRecIndexes.value.filter((item) => item !== index);
+    message.success('已取消完成标记');
+    return;
+  }
+  completedRecIndexes.value = [...completedRecIndexes.value, index];
+  message.success('已标记为完成');
+};
 
 // 时间标记
 const timeMarks = {
@@ -545,7 +690,7 @@ const criticalEventsColumns = [
 
 // 计算属性
 const isFormValid = computed(() => {
-  return formData.namespace.trim() !== '';
+  return Boolean(clusterId.value && namespace.value);
 });
 
 const hasAnomalies = computed(() => {
@@ -593,13 +738,13 @@ const filterMetrics = (input: string, option: any) => {
 // 开始分析
 const startAnalysis = async () => {
   if (!isFormValid.value) {
-    message.warning('请填写命名空间');
+    message.warning('请选择集群和命名空间');
     return;
   }
 
   // 验证命名空间格式
-  const namespace = formData.namespace.trim();
-  if (!/^[a-z0-9-]+$/.test(namespace)) {
+  const ns = (namespace.value || '').trim();
+  if (!/^[a-z0-9-]+$/.test(ns)) {
     message.error('命名空间格式不正确，只能包含小写字母、数字和连字符');
     return;
   }
@@ -608,14 +753,17 @@ const startAnalysis = async () => {
   message.info('开始根因分析，请稍候...');
 
   try {
+    const kubeConfig = await getSelectedKubeConfig();
     const request: RCAAnalyzeRequest = {
-      namespace: formData.namespace,
+      namespace: ns,
       time_window_hours: formData.timeWindowHours,
-      metrics: formData.metrics.length > 0 ? formData.metrics : undefined
+      metrics: formData.metrics.length > 0 ? formData.metrics : undefined,
+      kube_config: kubeConfig,
     };
 
     const response = await analyzeRootCause(request);
     analysisResult.value = response;
+    completedRecIndexes.value = [];
     
     await nextTick();
     if (activeResultTab.value === 'anomalies') {
@@ -635,7 +783,12 @@ const startAnalysis = async () => {
 
     let errorMessage = '根因分析失败';
     if (error instanceof Error) {
-      if (error.message.includes('Network Error')) {
+      if (
+        error.message.includes('请先选择集群') ||
+        error.message.includes('KubeConfig')
+      ) {
+        errorMessage = error.message;
+      } else if (error.message.includes('Network Error')) {
         errorMessage = '网络连接失败，请检查网络设置';
       } else if (error.message.includes('timeout')) {
         errorMessage = '分析超时，请尝试缩小时间窗口';
@@ -672,8 +825,49 @@ const getTotalErrorCount = () => {
 };
 
 const hasCorrelations = () => {
-  return analysisResult.value?.correlations && analysisResult.value.correlations.length > 0;
+  return realCorrelations.value.length > 0;
 };
+
+const EMPTY_CORRELATION_TYPES = new Set(['data_insufficient', 'no_anomaly']);
+
+const realCorrelations = computed(() =>
+  (analysisResult.value?.correlations || []).filter(
+    (item: { correlation_type?: string }) =>
+      !EMPTY_CORRELATION_TYPES.has(item.correlation_type || ''),
+  ),
+);
+
+const emptyCorrelation = computed(() =>
+  (analysisResult.value?.correlations || []).find(
+    (item: { correlation_type?: string }) =>
+      EMPTY_CORRELATION_TYPES.has(item.correlation_type || ''),
+  ),
+);
+
+const isEmptyAnalysis = computed(() => Boolean(emptyCorrelation.value) && realCorrelations.value.length === 0);
+
+const isDataInsufficient = computed(
+  () => emptyCorrelation.value?.correlation_type === 'data_insufficient',
+);
+
+const emptyAnalysisSubtitle = computed(() => {
+  if (isDataInsufficient.value) {
+    return 'RCA 需要 Prometheus 异常指标、K8s Warning 事件或 Pod ERROR 日志，当前三类都没有采到。';
+  }
+  return '时间窗口内没有指标异常、Warning 事件或 ERROR 日志，更像是命名空间运行正常。';
+});
+
+const emptyAnalysisReasons = computed(() => {
+  const evidence = emptyCorrelation.value?.evidence;
+  if (Array.isArray(evidence) && evidence.length) {
+    return evidence;
+  }
+  return [
+    'Prometheus 当前主要是主机指标，缺少容器/Pod 指标',
+    '所选命名空间在时间窗口内没有 Warning 事件',
+    '日志默认只收集 ERROR，正常日志不会进入分析',
+  ];
+});
 
 const hasErrorFrequency = () => {
   const freq = analysisResult.value?.anomalies?.logs?.error_frequency;
@@ -1142,8 +1336,40 @@ align-items: center;
   margin-top: 24px;
 }
 
+.source-summary {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.source-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #595959;
+  line-height: 1.9;
+}
+
+.empty-analysis {
+  padding: 12px 8px 24px;
+}
+
+.empty-analysis-reasons {
+  margin: 0 auto;
+  max-width: 560px;
+  padding-left: 20px;
+  color: #595959;
+  line-height: 1.8;
+}
+
 .form-error {
   color: #ff4d4f;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.form-hint {
+  color: #8c8c8c;
   font-size: 12px;
   margin-top: 4px;
 }
@@ -1527,11 +1753,22 @@ align-items: center;
   gap: 16px;
 }
 
-.recommendation-card {
-  padding: 16px;
-  border: 1px solid #e8e8e8;
-  border-radius: 8px;
-  background: white;
+.recommendation-card.completed {
+  background: #fafafa;
+  opacity: 0.78;
+}
+
+.recommendation-card.completed .rec-content {
+  text-decoration: line-through;
+  color: #8c8c8c;
+}
+
+.rec-detail-text {
+  margin: 0;
+  line-height: 1.7;
+  color: #262626;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .rec-header {

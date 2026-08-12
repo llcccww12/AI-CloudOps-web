@@ -242,6 +242,54 @@ export function useClusterPage() {
     isModalVisible.value = false;
   };
 
+  const toQuantity = (value: unknown): string => {
+    if (value === undefined || value === null || value === '') {
+      return '';
+    }
+    return String(value);
+  };
+
+  const normalizeRestrictNamespace = (value: unknown): string[] => {
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item).trim()).filter(Boolean);
+    }
+    if (typeof value === 'string' && value.trim()) {
+      return value
+        .split(/[,，]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+    return [];
+  };
+
+  const buildClusterPayload = () => {
+    const form = formModel.value;
+    return {
+      ...form,
+      cpu_request: toQuantity(form.cpu_request),
+      cpu_limit: toQuantity(form.cpu_limit),
+      memory_request: toQuantity(form.memory_request),
+      memory_limit: toQuantity(form.memory_limit),
+      restrict_namespace: normalizeRestrictNamespace(form.restrict_namespace),
+      tags: (form.tags || []).filter((tag) => tag?.key),
+      kube_config_content: (form.kube_config_content || '').trim(),
+    };
+  };
+
+  const getApiErrorMessage = (err: unknown, fallback: string): string => {
+    if (err && typeof err === 'object') {
+      const response = (err as { response?: { data?: { message?: string; data?: unknown } } }).response;
+      const data = response?.data;
+      if (typeof data?.message === 'string' && data.message && data.message !== '绑定数据失败') {
+        return data.message;
+      }
+      if (typeof data?.data === 'string' && data.data) {
+        return data.data;
+      }
+    }
+    return fallback;
+  };
+
   const submitForm = async () => {
     if (!formRef.value) return;
     
@@ -256,15 +304,16 @@ export function useClusterPage() {
       }
       
       submitLoading.value = true;
+      const payload = buildClusterPayload();
       if (
         isEdit.value &&
         (formModel.value as UpdateClusterReq & { id?: number }).id
       ) {
-        const m = formModel.value as UpdateClusterReq & { id?: number };
+        const m = payload as UpdateClusterReq & { id?: number };
         await updateClusterApi(m.id as number, m as UpdateClusterReq);
         message.success('集群更新成功');
       } else {
-        await createClusterApi(formModel.value as CreateClusterReq);
+        await createClusterApi(payload as CreateClusterReq);
         message.success('集群创建成功');
       }
       isModalVisible.value = false;
@@ -275,7 +324,7 @@ export function useClusterPage() {
         message.warning('请检查表单填写是否正确');
         return;
       }
-      message.error(isEdit.value ? '集群更新失败' : '集群创建失败');
+      message.error(getApiErrorMessage(err, isEdit.value ? '集群更新失败' : '集群创建失败'));
 
     } finally {
       submitLoading.value = false;

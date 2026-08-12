@@ -35,6 +35,8 @@ export interface ResourceConstraints {
 // 预测请求基础接口
 export interface BasePredictionRequest {
   metric_query?: string;
+  instance?: string;
+  require_real_data?: boolean;
   prediction_hours?: number;
   granularity?: PredictionGranularity;
   resource_constraints?: ResourceConstraints;
@@ -151,6 +153,8 @@ export interface PredictionResponse {
   analysis_id?: string;
   processing_time_seconds?: number;
   data_quality_assessment?: Record<string, any>;
+  instance?: string;
+  data_source?: string;
   timestamp: string;
 }
 
@@ -319,3 +323,34 @@ export async function getPredictionInfo(): Promise<ServiceInfoResponse> {
 export async function getModelInfo(): Promise<ModelInfoResponse> {
   return requestClientAIOps.get('/predict/models');
 };
+
+export interface PredictionHost {
+  instance: string;
+  job?: string;
+  health?: string;
+  scrapeUrl?: string;
+  labels?: Record<string, string>;
+}
+
+export interface PredictionHostListResponse {
+  hosts: PredictionHost[];
+  total: number;
+}
+
+export interface HostMetricsResponse {
+  instance: string;
+  cpu: number | null;
+  memory: number | null;
+  disk: number | null;
+  timestamp: string;
+}
+
+export async function getPredictionHosts(): Promise<PredictionHostListResponse> {
+  return requestClientAIOps.get('/predict/hosts');
+}
+
+export async function getHostMetrics(instance: string): Promise<HostMetricsResponse> {
+  return requestClientAIOps.get('/predict/host-metrics', {
+    params: { instance },
+  });
+}

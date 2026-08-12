@@ -37,11 +37,28 @@
       
       <div class="config-grid">
         <div class="config-item">
+          <label>Kubernetes 集群</label>
+          <a-select
+            v-model:value="clusterId"
+            placeholder="选择集群"
+            class="modern-select"
+            :loading="clustersLoading"
+            :options="clusterOptions"
+            show-search
+            option-filter-prop="label"
+          />
+        </div>
+        <div class="config-item">
           <label>命名空间</label>
-          <a-input
-            v-model:value="inputData.namespace"
-            placeholder="输入K8s命名空间"
-            class="modern-input"
+          <a-select
+            v-model:value="namespace"
+            placeholder="选择命名空间"
+            class="modern-select"
+            :loading="namespacesLoading"
+            :disabled="!clusterId"
+            :options="namespaceOptions"
+            show-search
+            option-filter-prop="label"
           />
         </div>
         <div class="config-item">
@@ -291,8 +308,12 @@
     <div class="summary-section" v-if="hasInitialData">
       <div class="summary-grid">
         <div class="summary-item">
+          <span class="summary-label">集群</span>
+          <span class="summary-value">{{ selectedCluster?.name || '-' }}</span>
+        </div>
+        <div class="summary-item">
           <span class="summary-label">命名空间</span>
-          <span class="summary-value">{{ inputData.namespace }}</span>
+          <span class="summary-value">{{ namespace || '-' }}</span>
         </div>
         <div class="summary-item">
           <span class="summary-label">分析时间</span>
@@ -345,6 +366,34 @@ import {
   getErrorSummary,
   analyzeRootCause
 } from '#/api/core/aiops/rca';
+import { useRcaClusterNamespace } from './useRcaClusterNamespace';
+
+const {
+  clusters,
+  namespaces,
+  clustersLoading,
+  namespacesLoading,
+  clusterId,
+  namespace,
+  selectedCluster,
+  getSelectedKubeConfig,
+} = useRcaClusterNamespace();
+
+const clusterOptions = computed(() =>
+  clusters.value.map((item) => ({
+    label: item.api_server_addr
+      ? `${item.name} (${item.api_server_addr})`
+      : item.name,
+    value: item.id,
+  })),
+);
+
+const namespaceOptions = computed(() =>
+  namespaces.value.map((item) => ({
+    label: item.name,
+    value: item.name,
+  })),
+);
 
 // 响应式数据
 const loading = ref(false);
@@ -353,10 +402,6 @@ const chartType = ref('line');
 const diagnosisLevel = ref('standard');
 const autoRefresh = ref(false);
 const hasInitialData = ref(false);
-
-const inputData = ref({
-  namespace: 'default'
-});
 
 // 诊断结果
 const quickDiagnosisResult = ref<QuickDiagnosisResponse | null>(null);
@@ -375,7 +420,7 @@ const currentStep = ref(0);
 
 // 计算属性
 const isFormValid = computed(() => {
-  return inputData.value.namespace.trim() !== '';
+  return Boolean(clusterId.value && namespace.value);
 });
 
 const formattedCriticalIssues = computed(() => {
@@ -472,12 +517,12 @@ const getCurrentStep = () => {
 // 刷新诊断
 const refreshAllDiagnosis = async () => {
   if (!isFormValid.value) {
-    message.warning('请填写命名空间');
+    message.warning('请选择集群和命名空间');
     return;
   }
 
-  const namespace = inputData.value.namespace.trim();
-  if (!/^[a-z0-9-]+$/.test(namespace)) {
+  const ns = (namespace.value || '').trim();
+  if (!/^[a-z0-9-]+$/.test(ns)) {
     message.error('命名空间格式不正确，只能包含小写字母、数字和连字符');
     return;
   }
@@ -489,6 +534,7 @@ const refreshAllDiagnosis = async () => {
   message.loading('开始快速诊断，请稍候...', 2);
   
   try {
+    const kubeConfig = await getSelectedKubeConfig();
     const promises: Promise<any>[] = [];
     
     // 步骤1: 快速诊断
@@ -497,7 +543,8 @@ const refreshAllDiagnosis = async () => {
     
     promises.push(
       quickDiagnosis({
-        namespace: inputData.value.namespace
+        namespace: ns,
+        kube_config: kubeConfig,
       }).catch(_error => {
         // Quick diagnosis failed
         return null;
@@ -511,8 +558,9 @@ const refreshAllDiagnosis = async () => {
       
       promises.push(
         getEventPatterns({
-          namespace: inputData.value.namespace,
-          hours: Number(timeRange.value)
+          namespace: ns,
+          hours: Number(timeRange.value),
+          kube_config: kubeConfig,
         }).catch(_error => {
           // Event patterns analysis failed
           return null;
@@ -527,16 +575,18 @@ const refreshAllDiagnosis = async () => {
       
       promises.push(
         getErrorSummary({
-          namespace: inputData.value.namespace,
-          hours: Number(timeRange.value)
+          namespace: ns,
+          hours: Number(timeRange.value),
+          kube_config: kubeConfig,
         }).catch(_error => {
           // Error summary analysis failed
           return null;
         }),
         analyzeRootCause({
-          namespace: inputData.value.namespace,
+          namespace: ns,
           time_window_hours: Number(timeRange.value),
-          metrics: []
+          metrics: [],
+          kube_config: kubeConfig,
         }).catch(_error => {
           // Root cause analysis failed
           return null;

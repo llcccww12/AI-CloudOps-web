@@ -9,7 +9,7 @@
           </div>
           <div class="header-text">
             <h1 class="page-title">智能预测分析</h1>
-            <p class="page-subtitle">深度分析和预测系统性能趋势</p>
+            <p class="page-subtitle">基于 Prometheus 真实主机指标预测性能趋势</p>
           </div>
         </div>
         <div class="header-actions">
@@ -27,13 +27,39 @@
       <a-col :xs="24" :lg="8">
         <a-card title="预测配置" class="config-card">
           <a-form :model="formData" layout="vertical">
+            <a-form-item label="数据来源" name="dataSource">
+              <a-radio-group v-model:value="formData.dataSource" button-style="solid" @change="onDataSourceChange">
+                <a-radio-button value="host">真实主机</a-radio-button>
+                <a-radio-button value="manual">手动输入</a-radio-button>
+              </a-radio-group>
+            </a-form-item>
+
+            <a-form-item
+              v-if="formData.dataSource === 'host'"
+              label="目标主机"
+              name="instance"
+              :rules="[{ required: true, message: '请选择主机' }]"
+            >
+              <a-select
+                v-model:value="formData.instance"
+                show-search
+                allow-clear
+                placeholder="选择 Prometheus 已采集主机"
+                :loading="hostsLoading"
+                :options="hostOptions"
+                option-filter-prop="label"
+                @change="onHostChange"
+              />
+              <div class="form-hint">仅展示 Prometheus 活跃 targets（含 node_exporter）</div>
+            </a-form-item>
+
             <a-form-item label="预测类型" name="predictionType">
               <a-select 
                 v-model:value="formData.predictionType" 
                 @change="onPredictionTypeChange"
                 placeholder="选择预测类型"
               >
-                <a-select-option value="qps">
+                <a-select-option v-if="formData.dataSource === 'manual'" value="qps">
                   <div class="option-content">
                     <ThunderboltOutlined style="color: #1890ff;" />
                     <span>QPS预测</span>
@@ -67,10 +93,14 @@
                 :max="getCurrentValueMax()"
                 :precision="2"
                 style="width: 100%"
-                :placeholder="`输入当前${getCurrentValueLabel()}`"
+                :placeholder="formData.dataSource === 'host' ? '选择主机后自动填充' : `输入当前${getCurrentValueLabel()}`"
                 :addon-after="getCurrentValueUnit()"
+                :disabled="formData.dataSource === 'host' && metricsLoading"
                 :status="formData.currentValue === null ? 'warning' : ''"
               />
+              <div v-if="formData.dataSource === 'host'" class="form-hint">
+                {{ metricsLoading ? '正在从 Prometheus 拉取当前值…' : '可手动微调；预测将使用该主机真实历史' }}
+              </div>
               <div v-if="!isFormValid && formData.currentValue !== null" class="form-error">
                 请输入有效的数值范围: 0 - {{ getCurrentValueMax() }}{{ getCurrentValueUnit() }}
               </div>
@@ -140,7 +170,18 @@
       </a-col>
 
       <a-col :xs="24" :lg="16">
-        <a-card title="预测结果" class="result-card" v-if="predictionResult">
+        <a-card class="result-card" v-if="predictionResult">
+          <template #title>
+            <a-space>
+              <span>预测结果</span>
+              <a-tag v-if="predictionResult.data_source === 'prometheus' || formData.dataSource === 'host'" color="processing">
+                基于 Prometheus 真实历史
+              </a-tag>
+              <a-tag v-if="predictionResult.instance || formData.instance" color="blue">
+                {{ predictionResult.instance || formData.instance }}
+              </a-tag>
+            </a-space>
+          </template>
           <template #extra>
             <a-space>
               <a-tag :color="getAccuracyColor(predictionResult.model_accuracy)">
@@ -164,7 +205,7 @@
         </a-card>
 
         <a-card v-else class="empty-result-card">
-          <a-empty description="暂无预测结果">
+          <a-empty :description="lastError || '暂无预测结果'">
             <template #image>
               <BarChartOutlined style="font-size: 64px; color: #bfbfbf;" />
             </template>
@@ -243,17 +284,24 @@ import {
   predictCpu,
   predictMemory,
   predictDisk,
+  getPredictionHosts,
+  getHostMetrics,
   type PredictionResponse,
   type QpsPredictionRequest,
   type CpuPredictionRequest,
   type MemoryPredictionRequest,
   type DiskPredictionRequest,
+  type PredictionHost,
   PredictionGranularity
 } from '#/api/core/aiops/predict';
 
 const analyzing = ref(false);
 const activeChartTab = ref('trend');
 const predictionResult = ref<PredictionResponse | null>(null);
+const lastError = ref('');
+const hostsLoading = ref(false);
+const metricsLoading = ref(false);
+const hostList = ref<PredictionHost[]>([]);
 
 const trendChartRef = ref<HTMLElement>();
 const confidenceChartRef = ref<HTMLElement>();
@@ -261,7 +309,9 @@ let trendChart: echarts.ECharts | null = null;
 let confidenceChart: echarts.ECharts | null = null;
 
 const formData = reactive({
-  predictionType: 'qps',
+  dataSource: 'host' as 'host' | 'manual',
+  instance: undefined as string | undefined,
+  predictionType: 'cpu',
   currentValue: null as number | null,
   predictionHours: 24,
   granularity: PredictionGranularity.HOUR,
@@ -271,6 +321,13 @@ const formData = reactive({
   includeAnomalyDetection: true,
   enableAiInsights: true
 });
+
+const hostOptions = computed(() =>
+  hostList.value.map((h) => ({
+    value: h.instance,
+    label: `${h.instance}${h.job ? ` (${h.job})` : ''}${h.health === 'up' ? '' : h.health ? ` [${h.health}]` : ''}`,
+  })),
+);
 
 const timeMarks = {
   1: '1h',
@@ -282,6 +339,9 @@ const timeMarks = {
 
 // 表单验证
 const isFormValid = computed(() => {
+  if (formData.dataSource === 'host' && !formData.instance) {
+    return false;
+  }
   return formData.currentValue !== null && 
          formData.currentValue >= 0 &&
          formData.currentValue <= getCurrentValueMax();
@@ -317,32 +377,137 @@ const getCurrentValueMax = () => {
   }
 };
 
-const onPredictionTypeChange = () => {
-  // 清空当前值，让用户重新填写
-  formData.currentValue = null;
-  // 清空之前的预测结果
+const loadHosts = async () => {
+  hostsLoading.value = true;
+  try {
+    const res = await getPredictionHosts();
+    hostList.value = res.hosts || [];
+    if (!hostList.value.length) {
+      message.warning('未找到可预测主机，请确认 Prometheus 已采集 node_exporter');
+    }
+  } catch (error: any) {
+    hostList.value = [];
+    const status = error?.response?.status;
+    const detail =
+      error?.response?.data?.message ||
+      error?.response?.data?.data?.detail ||
+      error?.message ||
+      '';
+    if (status === 500 || status === 502 || status === 503 || !status) {
+      message.error(
+        '加载主机列表失败：AIOps 预测服务不可用（请确认 localhost:8080 已启动）',
+      );
+    } else {
+      message.error(detail || '加载主机列表失败');
+    }
+  } finally {
+    hostsLoading.value = false;
+  }
+};
+
+const applyHostMetricToCurrent = (metrics: { cpu: number | null; memory: number | null; disk: number | null }) => {
+  const map: Record<string, number | null> = {
+    cpu: metrics.cpu,
+    memory: metrics.memory,
+    disk: metrics.disk,
+  };
+  const value = map[formData.predictionType];
+  formData.currentValue = value === null || value === undefined ? null : Number(value);
+};
+
+const loadHostMetrics = async () => {
+  if (!formData.instance || formData.dataSource !== 'host') {
+    return;
+  }
+  metricsLoading.value = true;
+  lastError.value = '';
+  try {
+    const metrics = await getHostMetrics(formData.instance);
+    applyHostMetricToCurrent(metrics);
+    if (formData.currentValue === null) {
+      message.warning(`主机 ${formData.instance} 暂无 ${getCurrentValueLabel()} 指标`);
+    }
+  } catch (error: any) {
+    formData.currentValue = null;
+    lastError.value = error?.message || '拉取主机指标失败';
+    message.error(lastError.value);
+  } finally {
+    metricsLoading.value = false;
+  }
+};
+
+const onDataSourceChange = () => {
   predictionResult.value = null;
+  lastError.value = '';
+  formData.currentValue = null;
+  if (formData.dataSource === 'host') {
+    if (formData.predictionType === 'qps') {
+      formData.predictionType = 'cpu';
+    }
+    loadHosts();
+    if (formData.instance) {
+      loadHostMetrics();
+    }
+  } else {
+    formData.instance = undefined;
+  }
+};
+
+const onHostChange = () => {
+  predictionResult.value = null;
+  lastError.value = '';
+  formData.currentValue = null;
+  loadHostMetrics();
+};
+
+const onPredictionTypeChange = () => {
+  predictionResult.value = null;
+  lastError.value = '';
+  if (formData.dataSource === 'host') {
+    loadHostMetrics();
+  } else {
+    formData.currentValue = null;
+  }
+};
+
+const extractErrorMessage = (error: any): string => {
+  return (
+    error?.response?.data?.message ||
+    error?.response?.data?.data?.detail ||
+    error?.message ||
+    '预测分析失败'
+  );
 };
 
 const startAnalysis = async () => {
   if (!isFormValid.value) {
+    if (formData.dataSource === 'host' && !formData.instance) {
+      message.warning('请选择目标主机');
+      return;
+    }
     message.warning(`请填写有效的${getCurrentValueLabel()}值`);
     return;
   }
 
   analyzing.value = true;
+  lastError.value = '';
   try {
     let response: PredictionResponse;
     
-    const baseRequest = {
+    const baseRequest: Record<string, any> = {
       prediction_hours: formData.predictionHours,
       granularity: formData.granularity,
       include_confidence: formData.includeConfidence,
       include_anomaly_detection: formData.includeAnomalyDetection,
-      target_utilization: formData.targetUtilization / 100, // 将百分比转换为小数
+      target_utilization: formData.targetUtilization / 100,
       sensitivity: formData.sensitivity,
-      enable_ai_insights: formData.enableAiInsights
+      enable_ai_insights: formData.enableAiInsights,
     };
+
+    if (formData.dataSource === 'host' && formData.instance) {
+      baseRequest.instance = formData.instance;
+      baseRequest.require_real_data = true;
+    }
 
     switch (formData.predictionType) {
       case 'qps':
@@ -377,10 +542,15 @@ const startAnalysis = async () => {
     
     await nextTick();
     initCharts();
-    message.success('预测分析完成');
-  } catch (error) {
-
-    message.error('预测分析失败，请检查输入参数');
+    message.success(
+      formData.dataSource === 'host'
+        ? `预测完成（真实主机 ${formData.instance}）`
+        : '预测分析完成',
+    );
+  } catch (error: any) {
+    predictionResult.value = null;
+    lastError.value = extractErrorMessage(error);
+    message.error(lastError.value);
   } finally {
     analyzing.value = false;
   }
@@ -599,7 +769,9 @@ const formatTimeForChart = (timestamp: string | Date): string => {
 
 const resetForm = () => {
   Object.assign(formData, {
-    predictionType: 'qps',
+    dataSource: 'host',
+    instance: undefined,
+    predictionType: 'cpu',
     currentValue: null,
     predictionHours: 24,
     granularity: PredictionGranularity.HOUR,
@@ -610,6 +782,8 @@ const resetForm = () => {
     enableAiInsights: true
   });
   predictionResult.value = null;
+  lastError.value = '';
+  loadHosts();
   message.success('表单已重置');
 };
 
@@ -624,7 +798,6 @@ const exportResult = () => {
   link.href = url;
   link.download = `prediction-result-${Date.now()}.json`;
   link.click();
-  
   URL.revokeObjectURL(url);
   message.success('预测结果已导出');
 };
@@ -636,6 +809,7 @@ const handleChartResize = () => {
 
 onMounted(() => {
   window.addEventListener('resize', handleChartResize);
+  loadHosts();
 });
 
 onUnmounted(() => {
@@ -731,6 +905,13 @@ onUnmounted(() => {
 
 .form-error {
   color: #ff4d4f;
+  font-size: 12px;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.form-hint {
+  color: #8c8c8c;
   font-size: 12px;
   margin-top: 4px;
   line-height: 1.4;
