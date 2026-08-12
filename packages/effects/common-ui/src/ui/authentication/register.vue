@@ -43,13 +43,25 @@ const router = useRouter();
 const formState = reactive({
   agreePolicy: false,
   confirmPassword: '',
+  mobile: '',
   password: '',
+  realName: '',
   submitted: false,
   username: '',
 });
 
 const usernameStatus = computed(() => {
   return formState.submitted && !formState.username ? 'error' : 'default';
+});
+
+const realNameStatus = computed(() => {
+  return formState.submitted && !formState.realName ? 'error' : 'default';
+});
+
+const mobileStatus = computed(() => {
+  if (!formState.submitted) return 'default';
+  if (!formState.mobile) return 'error';
+  return /^1\d{10}$/.test(formState.mobile) ? 'default' : 'error';
 });
 
 const passwordStatus = computed(() => {
@@ -66,14 +78,21 @@ function handleSubmit() {
   formState.submitted = true;
   if (
     usernameStatus.value !== 'default' ||
-    passwordStatus.value !== 'default'
+    realNameStatus.value !== 'default' ||
+    mobileStatus.value !== 'default' ||
+    passwordStatus.value !== 'default' ||
+    confirmPasswordStatus.value !== 'default' ||
+    !formState.agreePolicy
   ) {
     return;
   }
 
   emit('submit', {
-    password: formState.password,
     username: formState.username,
+    password: formState.password,
+    confirmPassword: formState.confirmPassword,
+    realName: formState.realName,
+    mobile: formState.mobile,
   });
 }
 
@@ -95,6 +114,26 @@ function goToLogin() {
       :placeholder="$t('authentication.username')"
       :status="usernameStatus"
       name="username"
+      type="text"
+    />
+    <VbenInput
+      v-model="formState.realName"
+      error-tip="请输入真实姓名"
+      label="真实姓名"
+      placeholder="真实姓名"
+      :status="realNameStatus"
+      name="realName"
+      type="text"
+    />
+    <VbenInput
+      v-model="formState.mobile"
+      :error-tip="
+        formState.mobile ? '请输入正确的11位手机号' : '请输入手机号'
+      "
+      label="手机号"
+      placeholder="手机号"
+      :status="mobileStatus"
+      name="mobile"
       type="text"
     />
     <!-- Use 8 or more characters with a mix of letters, numbers & symbols. -->

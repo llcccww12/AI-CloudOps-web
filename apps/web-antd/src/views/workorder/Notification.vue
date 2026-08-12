@@ -397,16 +397,68 @@
             <a-radio :value="NotificationTrigger.SCHEDULED">定时触发</a-radio>
             <a-radio :value="NotificationTrigger.CONDITIONAL">条件触发</a-radio>
           </a-radio-group>
+          <div class="form-help" style="margin-top: 8px;">
+            <small class="text-gray">
+              立即：事件发生马上发；延迟：事件发生后等待指定分钟再发；定时：在指定时间点发送；条件：按 JSON 条件判断
+            </small>
+          </div>
+        </a-form-item>
+
+        <a-form-item
+          label="延迟时间（分钟）"
+          name="repeatInterval"
+          v-if="notificationDialog.form.triggerType === NotificationTrigger.DELAYED"
+          :rules="[
+            {
+              required: true,
+              type: 'number',
+              min: 1,
+              message: '请填写延迟分钟数（至少1分钟）',
+              trigger: 'change',
+            },
+          ]"
+        >
+          <a-input-number
+            v-model:value="notificationDialog.form.repeatInterval"
+            placeholder="事件发生后延迟多少分钟再发送"
+            :min="1"
+            :max="10080"
+            style="width: 100%"
+          />
+          <div class="form-help" style="margin-top: 4px;">
+            <small class="text-gray">例如填 30，表示工单事件发生 30 分钟后再发通知</small>
+          </div>
+        </a-form-item>
+
+        <a-form-item
+          label="定时发送时间"
+          name="scheduledTime"
+          v-if="notificationDialog.form.triggerType === NotificationTrigger.SCHEDULED"
+          :rules="[
+            { required: true, message: '请选择定时发送时间', trigger: 'change' },
+          ]"
+        >
+          <a-date-picker
+            v-model:value="notificationDialog.form.scheduledTime"
+            show-time
+            placeholder="请选择发送时间"
+            style="width: 100%"
+            format="YYYY-MM-DD HH:mm:ss"
+            :disabled-date="disabledDate"
+          />
+          <div class="form-help" style="margin-top: 4px;">
+            <small class="text-gray">到该时间点按配置渠道发送通知</small>
+          </div>
         </a-form-item>
 
         <a-form-item 
           label="触发条件" 
           name="triggerCondition" 
-          v-if="notificationDialog.form.triggerType === 'conditional'"
+          v-if="notificationDialog.form.triggerType === NotificationTrigger.CONDITIONAL"
         >
           <a-textarea
             v-model:value="notificationDialog.form.triggerCondition"
-            placeholder="请输入触发条件（JSON格式）"
+            placeholder='请输入触发条件（JSON），例如：{"priority":1}'
             :rows="4"
           />
         </a-form-item>
@@ -467,14 +519,34 @@
           </a-checkbox-group>
         </a-form-item>
 
-        <a-form-item label="自定义接收人用户ID" name="recipientUsers" v-if="notificationDialog.form.recipientTypes.includes('user')">
+        <a-form-item label="自定义接收人" name="recipientUsers" v-if="notificationDialog.form.recipientTypes.includes('user')">
           <a-select 
             v-model:value="notificationDialog.form.recipientUsers" 
-            mode="tags"
-            placeholder="请输入用户ID"
+            mode="multiple"
+            placeholder="请选择接收用户"
             style="width: 100%"
-            :token-separators="[',', ';', ' ']"
-          />
+            show-search
+            :filter-option="filterUserOption"
+            :loading="userLoading"
+            :not-found-content="userLoading ? '加载中...' : '暂无用户'"
+            @popup-scroll="handleUserScroll"
+            @dropdown-visible-change="(open: boolean) => open && users.length === 0 && loadUsers(true)"
+          >
+            <a-select-option
+              v-for="user in users"
+              :key="String(user.id)"
+              :value="String(user.id)"
+              :label="`${user.real_name || user.username} (${user.username})`"
+            >
+              <div class="user-option">
+                <span class="user-name">{{ user.real_name || user.username }}</span>
+                <span class="user-meta">ID: {{ user.id }} · {{ user.username }}{{ user.email ? ` · ${user.email}` : '' }}</span>
+              </div>
+            </a-select-option>
+          </a-select>
+          <div class="form-help" style="margin-top: 4px;">
+            <small class="text-gray">按姓名/用户名搜索；邮件通知需用户资料中已填写邮箱</small>
+          </div>
         </a-form-item>
 
         <a-form-item label="接收人角色ID" name="recipientRoles" v-if="notificationDialog.form.recipientTypes.includes('role')">
@@ -612,46 +684,49 @@
           />
         </a-form-item>
 
-        <a-form-item 
-          label="定时发送时间" 
-          name="scheduledTime" 
-          v-if="notificationDialog.form.triggerType === 'scheduled'"
+        <a-form-item
+          label="未读催发间隔（分钟）"
+          name="repeatInterval"
+          v-if="notificationDialog.form.triggerType !== NotificationTrigger.DELAYED"
         >
-          <a-date-picker
-            v-model:value="notificationDialog.form.scheduledTime"
-            show-time
-            placeholder="请选择发送时间"
-            style="width: 100%"
-            :disabled-date="disabledDate"
-          />
-        </a-form-item>
-
-        <a-form-item label="重复间隔（分钟）" name="repeatInterval">
           <a-input-number
             v-model:value="notificationDialog.form.repeatInterval"
-            placeholder="重复间隔（分钟）"
+            placeholder="0 表示只发一次，不催发"
             :min="0"
             style="width: 100%"
           />
+          <div class="form-help" style="margin-top: 4px;">
+            <small class="text-gray">
+              0 / 空：只发首次；大于 0：接收人未打开工单时，每隔 N 分钟催一次，打开详情或工单结束后停止
+            </small>
+          </div>
         </a-form-item>
 
-        <a-form-item label="最大重试次数" name="maxRetries">
+        <a-form-item label="最多催发次数" name="maxRetries">
           <a-input-number
             v-model:value="notificationDialog.form.maxRetries"
-            placeholder="最大重试次数"
+            placeholder="含首次在内的最多发送轮次"
             :min="0"
             :max="10"
             style="width: 100%"
           />
+          <div class="form-help" style="margin-top: 4px;">
+            <small class="text-gray">
+              含首次发送在内，未读催发最多发送的总次数；达到上限后停止催发（发送失败重试仍受下方重试间隔约束）
+            </small>
+          </div>
         </a-form-item>
 
         <a-form-item label="重试间隔（分钟）" name="retryInterval">
           <a-input-number
             v-model:value="notificationDialog.form.retryInterval"
-            placeholder="重试间隔（分钟）"
+            placeholder="发送失败后的重试间隔"
             :min="1"
             style="width: 100%"
           />
+          <div class="form-help" style="margin-top: 4px;">
+            <small class="text-gray">仅在渠道发送失败时生效，与未读催发无关</small>
+          </div>
         </a-form-item>
 
         <a-form-item label="优先级" name="priority">
@@ -749,8 +824,9 @@
               {{ getPriorityName(detailDialog.notification.priority) }}
             </a-tag>
           </a-descriptions-item>
-          <a-descriptions-item label="最大重试次数">{{ detailDialog.notification.max_retries }}</a-descriptions-item>
-          <a-descriptions-item label="重试间隔">{{ detailDialog.notification.retry_interval }}分钟</a-descriptions-item>
+          <a-descriptions-item label="最多催发次数">{{ detailDialog.notification.max_retries }}</a-descriptions-item>
+          <a-descriptions-item label="未读催发间隔">{{ detailDialog.notification.repeat_interval || 0 }}分钟</a-descriptions-item>
+          <a-descriptions-item label="失败重试间隔">{{ detailDialog.notification.retry_interval }}分钟</a-descriptions-item>
           <a-descriptions-item label="是否默认配置">
             {{ detailDialog.notification.is_default === IsDefault.Yes ? '是' : '否' }}
           </a-descriptions-item>
@@ -799,13 +875,19 @@
                 {{ getNotificationChannelName(record.channel) }}
               </a-tag>
             </template>
+            <template v-if="column.key === 'recipient'">
+              <div>
+                <div>{{ record.recipient_name || record.recipient_id || '-' }}</div>
+                <div style="color: #8c8c8c; font-size: 12px;">{{ record.recipient_addr || '无地址' }}</div>
+              </div>
+            </template>
             <template v-if="column.key === 'status'">
-              <a-tag :color="record.status === 'success' ? 'green' : 'red'">
-                {{ record.status === 'success' ? '成功' : '失败' }}
+              <a-tag :color="getSendLogStatusColor(record.status)">
+                {{ getSendLogStatusText(record.status) }}
               </a-tag>
             </template>
-            <template v-if="column.key === 'createdAt'">
-              {{ formatFullDateTime(record.createdAt) }}
+            <template v-if="column.key === 'sendAt'">
+              {{ formatFullDateTime(record.send_at || record.created_at) }}
             </template>
           </template>
         </a-table>
@@ -979,10 +1061,10 @@ const columns = [
 
 const logsColumns = [
   { title: '渠道', dataIndex: 'channel', key: 'channel', width: 100 },
-  { title: '接收人', dataIndex: 'recipient', key: 'recipient', width: 150 },
-  { title: '状态', dataIndex: 'status', key: 'status', width: 80 },
-  { title: '发送时间', dataIndex: 'createdAt', key: 'createdAt', width: 180 },
-  { title: '错误信息', dataIndex: 'error', key: 'error', ellipsis: true }
+  { title: '接收人', dataIndex: 'recipient_addr', key: 'recipient', width: 200 },
+  { title: '状态', dataIndex: 'status', key: 'status', width: 90 },
+  { title: '发送时间', dataIndex: 'send_at', key: 'sendAt', width: 180 },
+  { title: '错误信息', dataIndex: 'error_message', key: 'error', ellipsis: true }
 ];
 
 // 状态数据
@@ -999,6 +1081,7 @@ const processes = ref<WorkorderProcessItem[]>([]);
 const templates = ref<WorkorderTemplateItem[]>([]);
 const categories = ref<WorkorderCategoryItem[]>([]);
 const users = ref<User[]>([]);
+const userSearchKeyword = ref('');
 
 // 分页加载状态
 const processLoading = ref(false);
@@ -1168,7 +1251,7 @@ const notificationRules = {
     { required: true, message: '请输入消息模板', trigger: 'blur' }
   ],
   maxRetries: [
-    { required: true, type: 'number', min: 0, max: 10, message: '最大重试次数必须在0-10之间', trigger: 'blur' }
+    { required: true, type: 'number', min: 0, max: 10, message: '最多催发次数必须在0-10之间', trigger: 'blur' }
   ],
   retryInterval: [
     { required: true, type: 'number', min: 1, message: '重试间隔必须大于0', trigger: 'blur' }
@@ -1287,6 +1370,29 @@ const getChannelColor = (channel: string): string => {
   return colorMap[channel] || 'default';
 };
 
+const getSendLogStatusText = (status: number | string): string => {
+  const map: Record<number, string> = {
+    1: '待发送',
+    2: '发送中',
+    3: '成功',
+    4: '失败',
+    5: '已取消',
+  };
+  const code = Number(status);
+  return map[code] || String(status || '未知');
+};
+
+const getSendLogStatusColor = (status: number | string): string => {
+  const map: Record<number, string> = {
+    1: 'default',
+    2: 'processing',
+    3: 'green',
+    4: 'red',
+    5: 'orange',
+  };
+  return map[Number(status)] || 'default';
+};
+
 const getChannelIcon = (channel: string) => {
   const iconMap: Record<string, any> = {
     [NotificationChannel.FEISHU]: MessageOutlined,
@@ -1342,7 +1448,7 @@ const getPreviewMessage = (notification: Notification): string => {
     .replace('{notification_year}', dayjs().format('YYYY'))
     .replace('{notification_month}', dayjs().format('MM'))
     .replace('{notification_day}', dayjs().format('DD'))
-    .replace('{company_name}', 'AI-CloudOps')
+    .replace('{company_name}', 'CacOps')
     .replace('{platform_name}', '智能运维管理平台')
     .replace('{department}', '技术运维部')
     .replace('{service_hotline}', '400-000-0000')
@@ -1493,7 +1599,7 @@ const loadUsers = async (reset = false): Promise<void> => {
     const res = await getUserList({
       page: userPagination.current,
       size: userPagination.pageSize,
-      search: '',
+      search: userSearchKeyword.value || '',
       enable: 1 // 只加载启用的用户
     });
     
@@ -1509,10 +1615,29 @@ const loadUsers = async (reset = false): Promise<void> => {
       userPagination.current++;
       userPagination.hasMore = newItems.length >= userPagination.pageSize;
     }
-  } catch (error) {
-
+  } catch (error: any) {
+    if (reset) {
+      message.error(error?.message || '加载用户列表失败');
+    }
   } finally {
     userLoading.value = false;
+  }
+};
+
+const filterUserOption = (input: string, option: any): boolean => {
+  const keyword = (input || '').toLowerCase();
+  const label = String(option?.label || '').toLowerCase();
+  const value = String(option?.value || '');
+  return label.includes(keyword) || value.includes(keyword);
+};
+
+const handleUserScroll = (e: Event): void => {
+  const { target } = e;
+  if (!target) return;
+  const element = target as HTMLElement;
+  const { scrollTop, scrollHeight, clientHeight } = element;
+  if (scrollTop + clientHeight >= scrollHeight - 5) {
+    loadUsers(false);
   }
 };
 
@@ -1649,8 +1774,10 @@ const loadSendLogs = async (notificationId: number): Promise<void> => {
     const params: ListSendLogReq = {
       page: logsPagination.current,
       size: logsPagination.pageSize,
-      notificationId: notificationId
-    };
+      page_size: logsPagination.pageSize,
+      notificationId: notificationId,
+      notification_id: notificationId,
+    } as ListSendLogReq;
     const res = await getSendLogs(params);
     if (res) {
       sendLogs.value = res.items || [];
@@ -2427,7 +2554,19 @@ onMounted(() => {
 
 .user-option {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.3;
+}
+
+.user-option .user-name {
+  font-weight: 500;
+  color: #262626;
+}
+
+.user-option .user-meta {
+  font-size: 12px;
+  color: #8c8c8c;
 }
 
 .recipients-help,

@@ -31,10 +31,10 @@ const defaultPreferences: Preferences = {
     styleType: 'normal',
   },
   copyright: {
-    companyName: 'Bamboo',
-    companySiteLink: 'https://github.com/GoSimplicity',
-    date: '2024',
-    enable: true,
+    companyName: '',
+    companySiteLink: '',
+    date: '',
+    enable: false,
     icp: '',
     icpLink: '',
   },
@@ -49,7 +49,7 @@ const defaultPreferences: Preferences = {
   },
   logo: {
     enable: true,
-    source: 'https://unpkg.com/@vbenjs/static-source@0.1.6/source/logo-v1.webp',
+    source: '/logo.png',
   },
   navigation: {
     accordion: true,

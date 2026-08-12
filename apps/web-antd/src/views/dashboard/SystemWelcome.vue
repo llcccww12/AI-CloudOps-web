@@ -9,7 +9,7 @@
     <!-- 顶部信息栏 -->
     <div class="dashboard-header">
       <div class="header-left">
-        <h1 class="platform-title">AI-CloudOps 智能运维平台</h1>
+        <h1 class="platform-title">CacOps 智能运维平台</h1>
         <span class="platform-desc">实时监控 · 智能预测 · 自动化运维</span>
       </div>
       <div class="header-right">

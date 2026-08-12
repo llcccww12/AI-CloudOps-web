@@ -58,6 +58,7 @@ function handleClear() {
 
 function handleClick(item: NotificationItem) {
   emit('read', item);
+  close();
 }
 </script>
 <template>

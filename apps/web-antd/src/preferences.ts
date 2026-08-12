@@ -12,6 +12,16 @@ export const overridesPreferences = defineOverridesPreferences({
     enableRefreshToken: true,
     name: import.meta.env.VITE_APP_TITLE,
   },
+  copyright: {
+    enable: false,
+    companyName: '',
+    companySiteLink: '',
+    date: '',
+  },
+  logo: {
+    enable: true,
+    source: '/logo.png',
+  },
   theme: {
     mode: 'light',
   },

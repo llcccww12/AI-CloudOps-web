@@ -9,7 +9,7 @@
       <!-- 浮动提示 -->
       <div class="tooltip-content" v-if="!isFloatWindowVisible">
         <Sparkles :size="16" />
-        <span>AI-CloudOps助手</span>
+        <span>CacOps助手</span>
       </div>
     </div>
 
@@ -22,7 +22,7 @@
             <Bot :size="20" />
           </div>
           <div class="title-content">
-            <span class="title-text">AI-CloudOps助手</span>
+            <span class="title-text">CacOps助手</span>
             <span class="title-subtitle">智能运维助手</span>
           </div>
         </div>
@@ -605,7 +605,7 @@ const quickActions = [
 // 聊天消息接口定义
 const chatMessages = reactive([
   {
-    content: '👋 您好！我是AI-CloudOps助手，专注于为您提供智能运维服务。\n\n我可以帮助您：\n• 🔍 监控云服务器状态\n• 📊 分析性能指标\n• 🛠️ 故障诊断与修复\n• 📋 生成运维报告\n\n请问有什么我可以为您服务的吗？',
+    content: '👋 您好！我是CacOps助手，专注于为您提供智能运维服务。\n\n我可以帮助您：\n• 🔍 监控云服务器状态\n• 📊 分析性能指标\n• 🛠️ 故障诊断与修复\n• 📋 生成运维报告\n\n请问有什么我可以为您服务的吗？',
     type: 'ai',
     time: formatTime(new Date())
   }
@@ -718,7 +718,7 @@ const stopResize = () => {
 const initChatMessages = () => {
   chatMessages.length = 0;
   chatMessages.push({
-    content: '👋 您好！我是AI-CloudOps助手，专注于为您提供智能运维服务。\n\n我可以帮助您：\n• 🔍 监控云服务器状态\n• 📊 分析性能指标\n• 🛠️ 故障诊断与修复\n• 📋 生成运维报告\n\n请问有什么我可以为您服务的吗？',
+    content: '👋 您好！我是CacOps助手，专注于为您提供智能运维服务。\n\n我可以帮助您：\n• 🔍 监控云服务器状态\n• 📊 分析性能指标\n• 🛠️ 故障诊断与修复\n• 📋 生成运维报告\n\n请问有什么我可以为您服务的吗？',
     type: 'ai',
     time: formatTime(new Date())
   });

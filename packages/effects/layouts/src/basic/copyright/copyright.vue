@@ -12,23 +12,23 @@ defineOptions({
 });
 
 withDefaults(defineProps<Props>(), {
-  companyName: 'Bamboo',
-  companySiteLink: 'https://github.com/GoSimplicity',
-  date: '2024',
+  companyName: '',
+  companySiteLink: '',
+  date: '',
   icp: '',
   icpLink: '',
 });
 </script>
 
 <template>
-  <div class="text-md flex-center">
+  <div v-if="companyName || date || icp" class="text-md flex-center">
     <!-- ICP Link -->
     <a v-if="icp" :href="icpLink || 'javascript:void(0)'" class="hover:text-primary-hover mx-1" target="_blank">
       {{ icp }}
     </a>
 
     <!-- Copyright Text -->
-    Copyright © {{ date }}
+    <template v-if="date">Copyright © {{ date }}</template>
 
     <!-- Company Link -->
     <a v-if="companyName" :href="companySiteLink || 'javascript:void(0)'" class="hover:text-primary-hover mx-1"

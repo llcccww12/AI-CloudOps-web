@@ -34,14 +34,6 @@
             />
           </a-form-item>
           <div class="comment-options">
-            <a-checkbox
-              v-model:checked="commentDialog.form.is_system"
-              class="system-checkbox"
-            >
-              <span class="checkbox-text">
-                <IconComponent icon="system" /> 系统评论
-              </span>
-            </a-checkbox>
             <div class="quick-actions">
               <a-tooltip title="快速插入当前时间">
                 <a-button size="small" type="text" @click="insertCurrentTime">
@@ -384,6 +376,7 @@ import {
   type WorkorderInstanceCommentItem,
   type CreateWorkorderInstanceCommentReq,
   type GetInstanceCommentsTreeReq,
+  CommentType,
   createWorkorderInstanceComment,
   getInstanceCommentsTree,
 } from '#/api/core/workorder/workorder_instance_comment';
@@ -443,13 +436,12 @@ const repliesExpanded = ref<Record<number, boolean>>({});
 const commentLikes = ref<Record<number, number>>({});
 const userLikedComments = ref<Set<number>>(new Set());
 
-// 评论对话框
+// 用户发表的评论固定为非系统评论（is_system=2），避免误标系统评论导致不发通知
 const commentDialog = reactive({
   visible: false,
   form: {
     instance_id: 0,
     content: '',
-    is_system: 0,
   } as CreateWorkorderInstanceCommentReq,
 });
 
@@ -572,7 +564,6 @@ const showCommentDialog = (instanceId: number) => {
   commentDialog.form = {
     instance_id: instanceId,
     content: '',
-    is_system: 0,
   };
   commentDialog.visible = true;
 };
@@ -589,7 +580,8 @@ const submitQuickComment = async () => {
     const commentData: CreateWorkorderInstanceCommentReq = {
       instance_id: commentsViewDialog.instanceId,
       content: quickCommentText.value,
-      is_system: 0,
+      type: CommentType.NORMAL,
+      is_system: 2,
     };
 
     await createWorkorderInstanceComment(commentData);
@@ -644,8 +636,8 @@ const submitReply = async (commentId: number) => {
       instance_id: commentsViewDialog.instanceId,
       content: replyText.value[commentId].trim(),
       parent_id: commentId,
-      type: 'normal',
-      is_system: 0,
+      type: CommentType.NORMAL,
+      is_system: 2,
     };
 
     await createWorkorderInstanceComment(replyData);
@@ -857,7 +849,12 @@ const saveComment = async () => {
     }
 
     loading.value = true;
-    await createWorkorderInstanceComment(commentDialog.form);
+    await createWorkorderInstanceComment({
+      ...commentDialog.form,
+      content: commentDialog.form.content.trim(),
+      type: CommentType.NORMAL,
+      is_system: 2,
+    });
 
     message.success('评论添加成功');
     commentDialog.visible = false;

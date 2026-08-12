@@ -49,10 +49,18 @@ export interface GetCloudAccountDetailReq {
 }
 
 // 创建云账户请求参数
+export interface CreateCloudAccountRegionItem {
+  region: string;
+  region_name?: string;
+  is_default?: boolean;
+  description?: string;
+}
+
 export interface CreateCloudAccountReq {
   name: string;
   provider: CloudProvider;
-  region: string;
+  region?: string;
+  regions?: CreateCloudAccountRegionItem[];
   access_key: string;
   secret_key: string;
   account_id?: string;

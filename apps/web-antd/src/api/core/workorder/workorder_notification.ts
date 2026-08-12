@@ -248,7 +248,9 @@ export interface WorkorderNotificationLogItem {
 export interface ListSendLogReq {
   page?: number; // 页码
   size?: number; // 每页数量
+  page_size?: number; // 每页数量（后端 form字段）
   notificationId?: number; // 通知配置ID
+  notification_id?: number; // 通知配置ID（后端form字段）
   instance_id?: number; // 工单实例ID
   event_type?: string; // 触发事件类型
   channel?: string; // 发送渠道

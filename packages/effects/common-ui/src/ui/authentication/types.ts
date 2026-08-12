@@ -76,6 +76,9 @@ interface AuthenticationProps {
 interface LoginAndRegisterParams {
   password: string;
   username: string;
+  confirmPassword?: string;
+  realName?: string;
+  mobile?: string;
 }
 
 interface LoginCodeParams {

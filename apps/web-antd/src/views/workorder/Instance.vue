@@ -360,8 +360,10 @@
       "
       :destroy-on-close="true"
       class="responsive-modal instance-form-modal"
-      :confirm-loading="loading"
+      :confirm-loading="submitting"
+      :ok-button-props="{ disabled: dialogBusy }"
     >
+      <a-spin :spinning="dialogBusy" tip="加载工单数据中...">
       <a-form
         ref="formRef"
         :model="instanceDialog.form"
@@ -559,7 +561,7 @@
                 :show-today="false"
                 :disabled-date="
                   (current: any) =>
-                    current && current < new Date().setHours(0, 0, 0, 0)
+                    current && current < dayjs().startOf('day')
                 "
               />
             </a-form-item>
@@ -777,6 +779,8 @@
                               field.placeholder || `请选择${field.label}`
                             "
                             style="width: 100%"
+                            format="YYYY-MM-DD"
+                            value-format="YYYY-MM-DD"
                             @change="handleVisualFormChange"
                           />
                         </a-form-item>
@@ -869,6 +873,7 @@
           </div>
         </a-form-item>
       </a-form>
+      </a-spin>
     </a-modal>
 
     <!-- 详情对话框 -->
@@ -1379,11 +1384,12 @@
                     <div class="notification-title">
                       <span class="event-type">{{ item.event_type }}</span>
                       <a-tag
-                        :color="item.status === 1 ? 'green' : 'red'"
+                        :color="getInstanceSendLogStatusColor(item.status)"
                         class="status-tag"
                       >
-                        {{ item.status === 1 ? '发送成功' : '发送失败' }}
+                        {{ getInstanceSendLogStatusText(item.status) }}
                       </a-tag>
+                      <a-tag v-if="item.channel" color="blue">{{ item.channel }}</a-tag>
                     </div>
                   </template>
                   <template #description>
@@ -1734,7 +1740,9 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, onBeforeUnmount, computed } from 'vue';
+import { useRoute } from 'vue-router';
 import { message, Modal } from 'ant-design-vue';
+import dayjs from 'dayjs';
 import {
   PlusOutlined,
   FileTextOutlined,
@@ -1885,6 +1893,8 @@ const columns = [
 
 // 状态数据
 const loading = ref(false);
+const dialogBusy = ref(false);
+const submitting = ref(false);
 const searchQuery = ref('');
 const statusFilter = ref<number | undefined>(undefined);
 const priorityFilter = ref<number | undefined>(undefined);
@@ -2268,6 +2278,28 @@ const formatDateTime = (dateStr: string | undefined) => {
   });
 };
 
+const getInstanceSendLogStatusText = (status: number | string): string => {
+  const map: Record<number, string> = {
+    1: '待发送',
+    2: '发送中',
+    3: '发送成功',
+    4: '发送失败',
+    5: '已取消',
+  };
+  return map[Number(status)] || String(status || '未知');
+};
+
+const getInstanceSendLogStatusColor = (status: number | string): string => {
+  const map: Record<number, string> = {
+    1: 'default',
+    2: 'processing',
+    3: 'green',
+    4: 'red',
+    5: 'orange',
+  };
+  return map[Number(status)] || 'default';
+};
+
 const getInitials = (name: string | undefined) => {
   if (!name) return '';
   return name.split('').slice(0, 2).join('').toUpperCase();
@@ -2305,10 +2337,28 @@ const loadFormDesign = async (processId: number): Promise<void> => {
   try {
     formDesignLoading.value = true;
 
-    // 先从已选择的流程中获取form_design_id
-    const selectedProcess =
+    // 先从已选择的流程中获取 form_design_id，找不到则拉流程详情
+    let selectedProcess =
       dialogProcesses.value.find((p) => p.id === processId) ||
       processes.value.find((p) => p.id === processId);
+
+    if (!selectedProcess?.form_design_id) {
+      try {
+        selectedProcess = (await detailWorkorderProcess({
+          id: processId,
+        } as DetailWorkorderProcessReq)) as WorkorderProcessItem;
+        if (selectedProcess?.id) {
+          const exists = dialogProcesses.value.some(
+            (p) => p.id === selectedProcess!.id,
+          );
+          if (!exists) {
+            dialogProcesses.value = [selectedProcess, ...dialogProcesses.value];
+          }
+        }
+      } catch {
+        selectedProcess = undefined;
+      }
+    }
 
     if (!selectedProcess?.form_design_id) {
       currentFormDesign.value = null;
@@ -2320,7 +2370,6 @@ const loadFormDesign = async (processId: number): Promise<void> => {
     } as DetailWorkorderFormDesignReq);
     if (res) {
       currentFormDesign.value = res;
-      // 初始化可视化表单数据
       initializeVisualFormData();
     }
   } catch (error: any) {
@@ -2350,7 +2399,7 @@ const initializeVisualFormData = (): void => {
   // 根据表单字段设置默认值
   currentFormDesign.value.schema.fields.forEach((field: FormField) => {
     if (!(field.name in newData)) {
-      if (field.default !== undefined) {
+      if (field.default !== undefined && field.default !== '') {
         newData[field.name] = field.default;
       } else {
         // 根据字段类型设置默认值
@@ -2378,6 +2427,18 @@ const initializeVisualFormData = (): void => {
             newData[field.name] = '';
         }
       }
+    }
+
+    // DatePicker 需要字符串或 dayjs；统一成 YYYY-MM-DD，避免原生 Date 导致渲染异常
+    if (
+      field.type === FormFieldType.Date &&
+      newData[field.name] != null &&
+      newData[field.name] !== ''
+    ) {
+      const parsed = dayjs(newData[field.name]);
+      newData[field.name] = parsed.isValid()
+        ? parsed.format('YYYY-MM-DD')
+        : undefined;
     }
   });
 
@@ -2997,13 +3058,14 @@ const handleTemplateSubmit = async () => {
 
 const handleEditInstance = async (row: WorkorderInstanceItem) => {
   instanceDialog.isEdit = true;
-  loading.value = true;
+  dialogBusy.value = true;
 
   try {
     const res = await detailWorkorderInstance({
       id: row.id,
     } as DetailWorkorderInstanceReq);
     if (res) {
+      const due = res.due_date ? dayjs(res.due_date) : undefined;
       instanceDialog.form = {
         id: res.id,
         title: res.title,
@@ -3015,7 +3077,7 @@ const handleEditInstance = async (row: WorkorderInstanceItem) => {
         form_data: res.form_data,
         status: res.status,
         tags: res.tags || [],
-        due_date: res.due_date ? new Date(res.due_date) : undefined,
+        due_date: due?.isValid() ? due : undefined,
       };
 
       // 重置表单编辑相关状态
@@ -3033,7 +3095,7 @@ const handleEditInstance = async (row: WorkorderInstanceItem) => {
   } catch (error) {
     message.error('获取工单详情失败');
   } finally {
-    loading.value = false;
+    dialogBusy.value = false;
   }
 };
 
@@ -3222,15 +3284,12 @@ const loadNotificationLogs = async (instanceId?: number, resetPage = false) => {
       instance_id: targetInstanceId,
       page: notificationLogsPagination.current,
       size: notificationLogsPagination.pageSize,
+      page_size: notificationLogsPagination.pageSize,
     } as ListSendLogReq);
 
-    if (res?.data) {
-      notificationLogs.value = res.data;
-      notificationLogsPagination.total = res.total || 0;
-    } else {
-      notificationLogs.value = [];
-      notificationLogsPagination.total = 0;
-    }
+    const items = (res as any)?.items ?? (res as any)?.data ?? [];
+    notificationLogs.value = Array.isArray(items) ? items : [];
+    notificationLogsPagination.total = (res as any)?.total || 0;
   } catch (error) {
     message.error('获取通知记录失败');
     notificationLogs.value = [];
@@ -3855,6 +3914,7 @@ const saveInstance = async () => {
     }
 
     loading.value = true;
+    submitting.value = true;
 
     if (instanceDialog.isEdit && instanceDialog.form.id) {
       const updateData: UpdateWorkorderInstanceReq = {
@@ -3868,7 +3928,7 @@ const saveInstance = async () => {
         form_data: formData,
         tags: instanceDialog.form.tags,
         due_date: instanceDialog.form.due_date
-          ? new Date(instanceDialog.form.due_date).toISOString()
+          ? dayjs(instanceDialog.form.due_date).toISOString()
           : undefined,
       };
 
@@ -3887,7 +3947,7 @@ const saveInstance = async () => {
         description: instanceDialog.form.description,
         tags: instanceDialog.form.tags,
         due_date: instanceDialog.form.due_date
-          ? new Date(instanceDialog.form.due_date).toISOString()
+          ? dayjs(instanceDialog.form.due_date).toISOString()
           : undefined,
       };
 
@@ -3904,6 +3964,7 @@ const saveInstance = async () => {
     message.error(`${action}工单失败: ${error.message || '未知错误'}`);
   } finally {
     loading.value = false;
+    submitting.value = false;
   }
 };
 
@@ -3977,6 +4038,8 @@ const ensureCurrentAssigneeInList = async (): Promise<void> => {
 };
 
 // 初始化加载
+const route = useRoute();
+
 onMounted(async () => {
   loading.value = true;
   try {
@@ -3985,6 +4048,13 @@ onMounted(async () => {
       loadUsers(true), // 初始化加载用户数据（第一页）
       loadProcesses(), // 初始化加载流程数据
     ]);
+
+    const rawId = route.query.id;
+    const idStr = Array.isArray(rawId) ? rawId[0] : rawId;
+    const instanceId = Number(idStr);
+    if (instanceId > 0) {
+      await handleViewInstance({ id: instanceId } as WorkorderInstanceItem);
+    }
   } catch (error: any) {
     message.error(
       `初始化数据加载失败: ${error.message || '未知错误'}, 请刷新页面重试`,

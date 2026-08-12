@@ -313,7 +313,17 @@ export function useCloudAccountManagement() {
         await updateCloudAccountApi(formData.value.id, updateData);
         message.success('云账户更新成功');
       } else {
-        await createCloudAccountApi(formData.value as CreateCloudAccountReq);
+        const { region, ...rest } = formData.value;
+        const createPayload: CreateCloudAccountReq = {
+          ...rest,
+          regions: [
+            {
+              region: region || '',
+              is_default: true,
+            },
+          ],
+        };
+        await createCloudAccountApi(createPayload);
         message.success('云账户创建成功');
       }
 
@@ -328,13 +338,27 @@ export function useCloudAccountManagement() {
   };
 
   const handleVerifyAndSubmit = async (): Promise<void> => {
+    let hideCreating: (() => void) | undefined;
+    let hideVerifying: (() => void) | undefined;
     try {
       await formRef.value?.validate();
       verifyLoading.value = true;
 
-      const hideCreating = message.loading('正在创建云账户...', 0);
-      const createResponse = await createCloudAccountApi(formData.value as CreateCloudAccountReq);
+      const { region, ...rest } = formData.value;
+      const createPayload: CreateCloudAccountReq = {
+        ...rest,
+        regions: [
+          {
+            region: region || '',
+            is_default: true,
+          },
+        ],
+      };
+
+      hideCreating = message.loading('正在创建云账户...', 0);
+      const createResponse = await createCloudAccountApi(createPayload);
       hideCreating();
+      hideCreating = undefined;
       
       const accountId = createResponse?.id;
       if (!accountId) {
@@ -343,9 +367,10 @@ export function useCloudAccountManagement() {
       }
 
       try {
-        const hideVerifying = message.loading('正在验证凭证...', 0);
+        hideVerifying = message.loading('正在验证凭证...', 0);
         await verifyCloudAccountApi(accountId);
         hideVerifying();
+        hideVerifying = undefined;
         
         message.success('云账户创建并验证成功');
         modalVisible.value = false;
@@ -363,6 +388,8 @@ export function useCloudAccountManagement() {
       if (error?.errorFields) return;
       message.error('创建云账户失败');
     } finally {
+      hideCreating?.();
+      hideVerifying?.();
       verifyLoading.value = false;
     }
   };
