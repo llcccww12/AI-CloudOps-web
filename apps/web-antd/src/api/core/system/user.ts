@@ -30,6 +30,7 @@ export interface UserSignUpReq {
   account_type: 1 | 2; // 1普通用户 2服务账号
   home_path?: string;
   enable?: 1 | 2; // 1正常 2冻结
+  department_id?: number;
 }
 
 export interface UpdateProfileReq {
@@ -43,6 +44,7 @@ export interface UpdateProfileReq {
   account_type: 1 | 2;
   home_path?: string;
   enable?: 1 | 2;
+  department_id?: number;
 }
 
 export interface WriteOffReq {

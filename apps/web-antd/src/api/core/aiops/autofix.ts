@@ -16,10 +16,21 @@ export interface AutoFixAction {
   action_id?: string;
   action_type?: string;
   description?: string;
+  error?: string | null;
   executable?: boolean;
+  execution_preview?: {
+    command?: string;
+    impact?: string;
+    kind?: string;
+    parameters?: Record<string, any>;
+    patch?: Record<string, any>;
+    summary?: string;
+  };
+  finished_at?: string;
   parameters?: Record<string, any>;
   result?: Record<string, any> | null;
   risk_assessment?: AutoFixRiskAssessment;
+  started_at?: string;
   status?: string;
   target?: {
     kind?: string;
@@ -35,6 +46,7 @@ export interface AutoFixPlan {
   created_at?: string;
   deployment?: string;
   fault_type?: string;
+  fault_type_source?: string;
   namespace?: string;
   plan_id?: string;
   resource_exists?: boolean;
@@ -53,6 +65,8 @@ export interface AutoFixWorkflowRequest {
   deployment?: string;
   diagnosis?: Record<string, any>;
   event?: string;
+  fault_type?: string;
+  kube_config?: string;
   namespace?: string;
   problem_description: string;
 }
@@ -60,6 +74,17 @@ export interface AutoFixWorkflowRequest {
 export interface AutoFixWorkflowConfirmRequest {
   approved_action_ids: string[];
   plan_id: string;
+}
+
+export interface AutoFixUserBrief {
+  cause?: string;
+  evidence?: string[];
+  explanation?: string;
+  kind?: string;
+  next_steps?: string[];
+  problem?: string;
+  resolved?: boolean;
+  resolved_label?: string;
 }
 
 export interface AutoFixWorkflowResponse {
@@ -75,6 +100,7 @@ export interface AutoFixWorkflowResponse {
   review: Record<string, any>;
   status: string;
   timestamp: string;
+  user_brief?: AutoFixUserBrief;
   workflow_engine?: string;
   workflow_nodes?: string[];
 }
@@ -104,11 +130,15 @@ export interface AutoFixReadyResponse {
 }
 
 export async function executeAutoFixWorkflow(data: AutoFixWorkflowRequest) {
-  return requestClientAIOps.post<AutoFixWorkflowResponse>('/autofix/workflow', data);
+  return requestClientAIOps.post<AutoFixWorkflowResponse>('/autofix/workflow', data, {
+    timeout: 300_000,
+  });
 }
 
 export async function confirmAutoFixWorkflow(data: AutoFixWorkflowConfirmRequest) {
-  return requestClientAIOps.post<AutoFixWorkflowResponse>('/autofix/workflow/confirm', data);
+  return requestClientAIOps.post<AutoFixWorkflowResponse>('/autofix/workflow/confirm', data, {
+    timeout: 180_000,
+  });
 }
 
 export async function getAutoFixInfo() {

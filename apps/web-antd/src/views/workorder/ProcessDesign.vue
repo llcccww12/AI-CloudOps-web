@@ -446,6 +446,7 @@
 
 <script setup lang="ts">
 import { ref, watch, computed, h, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { message, Modal, Empty, Spin as ASpin } from 'ant-design-vue';
 import {
   PlusOutlined,
@@ -471,10 +472,13 @@ import {
   Action,
   AssigneeType,
   type CreateWorkorderProcessReq,
+  type UpdateWorkorderProcessReq,
   type ProcessConnection,
   ProcessStepType,
   ProcessStatus,
   createWorkorderProcess,
+  updateWorkorderProcess,
+  detailWorkorderProcess,
 } from '#/api/core/workorder/workorder_process';
 import {
   type WorkorderCategoryItem,
@@ -485,6 +489,10 @@ import {
   listWorkorderFormDesign,
   FormDesignStatus,
 } from '#/api/core/workorder/workorder_form_design';
+
+const route = useRoute();
+const router = useRouter();
+const editingProcessId = ref<number | null>(null);
 
 interface UserInfo {
   id: number;
@@ -1002,7 +1010,7 @@ const saveProcess = async (): Promise<void> => {
 
     loading.value = true;
 
-    const createData: CreateWorkorderProcessReq = {
+    const payload = {
       name: processBasicInfo.value.name,
       description: processBasicInfo.value.description || '',
       form_design_id: processBasicInfo.value.form_design_id,
@@ -1016,24 +1024,28 @@ const saveProcess = async (): Promise<void> => {
       is_default: processBasicInfo.value.is_default,
     };
 
-    await createWorkorderProcess(createData);
-    message.success(`流程 "${processBasicInfo.value.name}" 创建成功！`);
+    if (editingProcessId.value) {
+      const updateData: UpdateWorkorderProcessReq = {
+        id: editingProcessId.value,
+        ...payload,
+        form_design_id: processBasicInfo.value.form_design_id!,
+        is_default: processBasicInfo.value.is_default,
+      };
+      await updateWorkorderProcess(updateData);
+      message.success(`流程 "${processBasicInfo.value.name}" 更新成功！`);
+    } else {
+      const createData: CreateWorkorderProcessReq = {
+        ...payload,
+        form_design_id: processBasicInfo.value.form_design_id!,
+        is_default: processBasicInfo.value.is_default,
+      };
+      await createWorkorderProcess(createData);
+      message.success(`流程 "${processBasicInfo.value.name}" 创建成功！`);
+    }
 
-    // 重置表单
-    processBasicInfo.value = {
-      name: '',
-      description: '',
-      form_design_id: undefined,
-      category_id: undefined,
-      status: ProcessStatus.Draft,
-      tags: [],
-      is_default: 2,
-    };
-    processSteps.value = [];
-    connections.value = [];
-    selectedStepIndex.value = null;
+    router.push('/workorder/processes');
   } catch (error: any) {
-    message.error(`创建流程失败: ${error.message || '未知错误'}`);
+    message.error(`${editingProcessId.value ? '更新' : '创建'}流程失败: ${error.message || '未知错误'}`);
   } finally {
     loading.value = false;
   }
@@ -1077,6 +1089,27 @@ onMounted(async () => {
   loading.value = true;
   try {
     await Promise.all([loadCategories(), loadFormDesigns()]);
+
+    const rawId = route.params.id;
+    const idStr = Array.isArray(rawId) ? rawId[0] : rawId;
+    const processId = Number(idStr);
+    if (processId > 0) {
+      const detail = await detailWorkorderProcess({ id: processId });
+      if (detail) {
+        editingProcessId.value = detail.id;
+        processBasicInfo.value = {
+          name: detail.name || '',
+          description: detail.description || '',
+          form_design_id: detail.form_design_id,
+          category_id: detail.category_id,
+          status: detail.status || ProcessStatus.Draft,
+          tags: detail.tags || [],
+          is_default: (detail.is_default as 1 | 2) || 2,
+        };
+        processSteps.value = detail.definition?.steps || [];
+        connections.value = detail.definition?.connections || [];
+      }
+    }
   } catch (error: any) {
     message.error(`初始化数据加载失败: ${error.message || '未知错误'}`);
   } finally {

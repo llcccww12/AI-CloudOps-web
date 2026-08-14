@@ -359,6 +359,17 @@
           </a-col>
         </a-row>
 
+        <a-form-item label="所属部门" name="department_id">
+          <a-tree-select
+            v-model:value="formData.department_id"
+            :tree-data="departmentOptions"
+            allow-clear
+            tree-default-expand-all
+            placeholder="未分配"
+            :field-names="{ label: 'name', value: 'id', children: 'children' }"
+          />
+        </a-form-item>
+
         <a-form-item label="用户描述" name="desc">
           <a-textarea v-model:value="formData.desc" :rows="3" placeholder="请输入用户描述信息" />
         </a-form-item>
@@ -433,6 +444,7 @@ import {
   getUserRolesApi,
   listRolesApi
 } from '#/api/core/system/system';
+import { getDepartmentTreeApi, type Department } from '#/api/core/system/department';
 
 // 类型定义
 interface UserStatistics {
@@ -462,6 +474,7 @@ interface UserInfo {
   roles?: UserRole[];
   fei_shu_user_id?: string;
   home_path?: string;
+  department_id?: number;
 }
 
 // 表单引用
@@ -533,10 +546,12 @@ const initFormData = () => ({
   home_path: '',
   id: 0,
   avatar: '',
-  fei_shu_user_id: ''
+  fei_shu_user_id: '',
+  department_id: undefined as number | undefined,
 });
 
 const formData = reactive(initFormData());
+const departmentOptions = ref<Department[]>([]);
 
 // 表单验证规则
 const formRules = computed(() => {
@@ -852,6 +867,7 @@ const handleEdit = async (user: UserInfo) => {
       home_path: response.home_path || '',
       avatar: response.avatar || '',
       fei_shu_user_id: response.fei_shu_user_id || '',
+      department_id: response.department_id || undefined,
     });
     modalVisible.value = true;
   } catch (error: any) {
@@ -962,7 +978,8 @@ const handleSubmit = async () => {
         account_type: formData.account_type as 1 | 2,
         enable: formData.enable as 1 | 2,
         home_path: formData.home_path,
-        fei_shu_user_id: formData.fei_shu_user_id || ''
+        fei_shu_user_id: formData.fei_shu_user_id || '',
+        department_id: formData.department_id || 0,
       };
       
       // 添加可选字段
@@ -992,7 +1009,8 @@ const handleSubmit = async () => {
         home_path: formData.home_path,
         email: formData.email || '',
         fei_shu_user_id: formData.fei_shu_user_id || '',
-        avatar: formData.avatar || ''
+        avatar: formData.avatar || '',
+        department_id: formData.department_id || 0,
       };
       await updateUserInfo(updateData);
       message.success('更新成功');
@@ -1045,6 +1063,13 @@ onMounted(() => {
   fetchUserList();
   fetchRoleList();
   fetchUserStatistics();
+  getDepartmentTreeApi()
+    .then((data) => {
+      departmentOptions.value = (data as Department[]) || [];
+    })
+    .catch(() => {
+      departmentOptions.value = [];
+    });
 });
 </script>
 

@@ -151,7 +151,16 @@ function createRequestClient(baseURL: string) {
 
   // 通用的错误处理,如果没有进入上面的错误处理逻辑，就会进入这里
   client.addResponseInterceptor(
-    errorMessageResponseInterceptor((msg: string) => message.error(msg)),
+    errorMessageResponseInterceptor((msg: string, error) => {
+      const raw = String((error as any)?.message || '');
+      const matched = raw.match(/^Error \d+:\s*(.+)$/);
+      const backendMsg = matched?.[1]?.trim();
+      if (backendMsg && backendMsg !== 'undefined' && backendMsg !== 'null') {
+        message.error(backendMsg);
+        return;
+      }
+      message.error(msg);
+    }),
   );
 
   return client;

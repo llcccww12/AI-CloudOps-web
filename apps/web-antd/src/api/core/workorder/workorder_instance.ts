@@ -97,6 +97,9 @@ export interface DetailWorkorderInstanceReq {
   id: number; // ID
 }
 
+// 工单列表范围：待办 / 我发起的 / 全部
+export type WorkorderInstanceScope = 'todo' | 'mine' | 'all' | 'archive';
+
 // 工单实例列表请求
 export interface ListWorkorderInstanceReq {
   page: number; // 页码
@@ -105,6 +108,17 @@ export interface ListWorkorderInstanceReq {
   status?: number; // 状态
   priority?: number; // 优先级
   process_id?: number; // 流程ID
+  scope?: WorkorderInstanceScope; // 列表范围
+}
+
+// 导出工单实例请求
+export interface ExportWorkorderInstanceReq {
+  search?: string;
+  status?: number;
+  priority?: number;
+  process_id?: number;
+  scope?: WorkorderInstanceScope;
+  limit?: number;
 }
 
 // 提交工单请求
@@ -116,6 +130,8 @@ export interface SubmitWorkorderInstanceReq {
 export interface AssignWorkorderInstanceReq {
   id: number; // ID
   assignee_id: number; // 处理人ID
+  mode?: 'transfer' | 'forward'; // 转办协同 / 流转下一节点
+  comment?: string; // 指派说明
 }
 
 // 审批通过工单请求
@@ -210,6 +226,16 @@ export async function listWorkorderInstance(
   params: ListWorkorderInstanceReq,
 ) {
   return requestClient.get('/workorder/instance/list', { params });
+}
+
+// 导出工单实例
+export async function exportWorkorderInstance(
+  params: ExportWorkorderInstanceReq,
+) {
+  return requestClient.get('/workorder/instance/export', {
+    params,
+    responseType: 'blob',
+  });
 }
 
 // 提交工单

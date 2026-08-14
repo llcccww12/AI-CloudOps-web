@@ -253,34 +253,6 @@
       </a-card>
     </div>
 
-    <!-- 流程创建/编辑对话框 -->
-    <a-modal
-      :open="processDialog.visible"
-      :title="processDialog.isEdit ? '编辑流程' : '创建流程'"
-      :width="formDialogWidth"
-      @ok="saveProcess"
-      @cancel="closeProcessDialog"
-      :destroy-on-close="true"
-      class="responsive-modal process-design-modal"
-      :confirm-loading="loading"
-    >
-      <div class="modal-content">
-        <!-- 流程编辑模式切换 -->
-        <div class="edit-mode-tabs">
-          <a-tabs v-model:activeKey="editMode" type="card">
-            <a-tab-pane key="basic" tab="基本信息">
-              <ProcessBasicConfig
-                ref="basicConfigRef"
-                v-model="processDialog.form"
-                :categories="categories"
-                :forms="formDesigns"
-              />
-            </a-tab-pane>
-          </a-tabs>
-        </div>
-      </div>
-    </a-modal>
-
     <!-- 详情对话框 -->
     <a-modal
       :open="detailDialog.visible"
@@ -367,6 +339,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import { message, Modal } from 'ant-design-vue';
 import {
   PlusOutlined,
@@ -379,15 +352,10 @@ import {
 
 import {
   type WorkorderProcessItem,
-  type CreateWorkorderProcessReq,
-  type UpdateWorkorderProcessReq,
   type ListWorkorderProcessReq,
   ProcessStatus,
-  createDefaultProcessDefinition,
   listWorkorderProcess,
   detailWorkorderProcess,
-  createWorkorderProcess,
-  updateWorkorderProcess,
   deleteWorkorderProcess,
 } from '#/api/core/workorder/workorder_process';
 
@@ -402,7 +370,7 @@ import {
   FormDesignStatus,
 } from '#/api/core/workorder/workorder_form_design';
 
-import ProcessBasicConfig from './components/ProcessBasicConfig.vue';
+const router = useRouter();
 
 // 列定义
 const columns = [
@@ -480,12 +448,6 @@ const currentPage = ref(1);
 const pageSize = ref(10);
 const total = ref(0);
 
-// 编辑模式
-const editMode = ref('basic');
-
-// 组件引用
-const basicConfigRef = ref();
-
 // 统计数据
 const stats = reactive({
   total: 0,
@@ -510,37 +472,10 @@ const paginationConfig = computed(() => ({
   pageSizeOptions: ['10', '20', '50', '100'],
 }));
 
-// 流程对话框
-const processDialog = reactive({
-  visible: false,
-  isEdit: false,
-  form: {
-    id: undefined,
-    name: '',
-    description: '',
-    form_design_id: 0,
-    category_id: undefined,
-    status: ProcessStatus.Draft,
-    tags: [],
-    is_default: 2,
-    definition: createDefaultProcessDefinition(),
-  } as CreateWorkorderProcessReq & { id?: number },
-});
-
 // 详情对话框
 const detailDialog = reactive({
   visible: false,
   process: null as WorkorderProcessItem | null,
-});
-
-const formDialogWidth = computed(() => {
-  if (typeof window !== 'undefined') {
-    const width = window.innerWidth;
-    if (width < 768) return '95%';
-    if (width < 1024) return '90%';
-    return '1000px';
-  }
-  return '1000px';
 });
 
 const previewDialogWidth = computed(() => {
@@ -704,51 +639,12 @@ const handleCategoryChange = (): void => {
 };
 
 const handleCreateProcess = (): void => {
-  processDialog.isEdit = false;
-  processDialog.form = {
-    name: '',
-    description: '',
-    form_design_id: 0,
-    category_id: undefined,
-    status: ProcessStatus.Draft,
-    tags: [],
-    is_default: 2,
-    definition: createDefaultProcessDefinition(),
-  };
-  editMode.value = 'basic';
-  processDialog.visible = true;
+  router.push('/workorder/processes/design');
 };
 
 const handleEditProcess = async (row: WorkorderProcessItem): Promise<void> => {
-  processDialog.isEdit = true;
-  loading.value = true;
-
-  try {
-    const res = (await detailWorkorderProcess({
-      id: row.id!,
-    })) as WorkorderProcessItem;
-    if (res) {
-      processDialog.form = {
-        id: res.id,
-        name: res.name,
-        description: res.description,
-        form_design_id: res.form_design_id,
-        category_id: res.category_id,
-        status: res.status,
-        tags: res.tags || [],
-        is_default: res.is_default as 1 | 2,
-        definition: res.definition || createDefaultProcessDefinition(),
-      };
-
-      editMode.value = 'basic';
-      processDialog.visible = true;
-      detailDialog.visible = false;
-    }
-  } catch (error: any) {
-    message.error('获取流程详情失败');
-  } finally {
-    loading.value = false;
-  }
+  detailDialog.visible = false;
+  router.push(`/workorder/processes/${row.id}/design`);
 };
 
 const handleViewProcess = async (row: WorkorderProcessItem): Promise<void> => {
@@ -922,78 +818,6 @@ const confirmDelete = (process: WorkorderProcessItem): void => {
       }
     },
   });
-};
-
-const saveProcess = async (): Promise<void> => {
-  try {
-    // 验证基础配置
-    if (editMode.value === 'basic') {
-      const isValid = await basicConfigRef.value?.validate();
-      if (!isValid) {
-        return;
-      }
-    }
-
-    if (!processDialog.form.name.trim()) {
-      message.error('流程名称不能为空');
-      return;
-    }
-
-    if (!processDialog.form.form_design_id) {
-      message.error('请选择关联表单');
-      return;
-    }
-
-    loading.value = true;
-
-    if (processDialog.isEdit && processDialog.form.id) {
-      const updateData: UpdateWorkorderProcessReq = {
-        id: processDialog.form.id,
-        name: processDialog.form.name,
-        description: processDialog.form.description || '',
-        form_design_id: processDialog.form.form_design_id,
-        definition: processDialog.form.definition,
-        category_id: processDialog.form.category_id,
-        status: processDialog.form.status,
-        tags: processDialog.form.tags,
-        is_default: processDialog.form.is_default,
-      };
-
-      await updateWorkorderProcess(updateData);
-      message.success(`流程 "${processDialog.form.name}" 已更新`);
-    } else {
-      const createData: CreateWorkorderProcessReq = {
-        name: processDialog.form.name,
-        description: processDialog.form.description,
-        form_design_id: processDialog.form.form_design_id,
-        definition: processDialog.form.definition,
-        category_id: processDialog.form.category_id,
-        status: processDialog.form.status,
-        tags: processDialog.form.tags,
-        is_default: processDialog.form.is_default,
-      };
-
-      await createWorkorderProcess(createData);
-      message.success(`流程 "${processDialog.form.name}" 已创建`);
-      currentPage.value = 1;
-    }
-
-    processDialog.visible = false;
-    loadProcesses();
-  } catch (error: any) {
-    message.error(
-      processDialog.isEdit
-        ? `更新流程失败: ${error.message || '未知错误'}`
-        : `创建流程失败: ${error.message || '未知错误'}`,
-    );
-  } finally {
-    loading.value = false;
-  }
-};
-
-// 对话框关闭方法
-const closeProcessDialog = (): void => {
-  processDialog.visible = false;
 };
 
 const closeDetailDialog = (): void => {

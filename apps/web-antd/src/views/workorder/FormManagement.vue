@@ -614,6 +614,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, onBeforeUnmount, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import { message, Modal } from 'ant-design-vue';
 import {
   PlusOutlined,
@@ -642,6 +643,8 @@ import {
 } from '#/api/core/workorder/workorder_form_design';
 import type { WorkorderCategoryItem } from '#/api/core/workorder/workorder_category';
 import { listWorkorderCategory } from '#/api/core/workorder/workorder_category';
+
+const router = useRouter();
 
 const formDialogWidth = computed(() => {
   if (typeof window !== 'undefined') {
@@ -1270,46 +1273,12 @@ const handleResetFilters = (): void => {
 };
 
 const handleCreateForm = (): void => {
-  formDialog.isEdit = false;
-  formDialog.form = {
-    id: undefined,
-    name: '',
-    description: '',
-    category_id: undefined,
-    status: FormDesignStatus.Draft,
-    tags: [],
-    is_template: 2,
-    fieldsJson: ''
-  };
-  jsonValidationError.value = '';
-  formDialogVisible.value = true;
-  resetCategorySelector();
+  router.push('/workorder/forms/design');
 };
 
 const handleEditForm = async (record: WorkorderFormDesignItem): Promise<void> => {
-  try {
-    const response = await detailWorkorderFormDesign({ id: record.id });
-    if (response) {
-      formDialog.isEdit = true;
-      formDialog.form = {
-        id: response.id,
-        name: response.name,
-        description: response.description,
-        category_id: response.category_id,
-        status: response.status,
-        tags: response.tags || [],
-        is_template: response.is_template,
-        fieldsJson: JSON.stringify(response.schema.fields || [], null, 2)
-      };
-      jsonValidationError.value = '';
-      formDialogVisible.value = true;
-      detailDialogVisible.value = false;
-      await loadCategoryForEdit(response);
-    }
-  } catch (error) {
-
-    message.error('加载表单详情失败');
-  }
+  detailDialogVisible.value = false;
+  router.push(`/workorder/forms/${record.id}/design`);
 };
 
 // 为编辑模式加载分类信息的专用方法

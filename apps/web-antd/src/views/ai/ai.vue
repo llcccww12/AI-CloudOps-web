@@ -975,7 +975,7 @@ const sendQuickMessage = (text) => {
 // JavaScript 代码示例
 function hello(name) {
 
-  return "Welcome to AI-CloudOps";
+  return "Welcome to CacOps";
 }
 
 // 调用函数
@@ -999,7 +999,7 @@ print(f"系统状态: {result}")
 \`\`\`
 
 ### 引用
-> 这是一个引用块示例。AI-CloudOps 致力于提供最智能的运维解决方案。
+> 这是一个引用块示例。CacOps 致力于提供最智能的运维解决方案。
 
 ### 表格
 | 服务器 | CPU使用率 | 内存使用率 | 状态 |
@@ -1009,7 +1009,7 @@ print(f"系统状态: {result}")
 | DB-01 | 35% | 50% | 正常 |
 
 ### 链接
-访问 [AI-CloudOps官网](https://ai-cloudops.com) 了解更多信息。
+访问 [CacOps官网](https://ai-cloudops.com) 了解更多信息。
 
 ---
 

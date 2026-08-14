@@ -317,6 +317,7 @@ const sendMessage = async () => {
     // 滚动到底部
     await nextTick();
     scrollToBottom();
+    persistChatSession();
 
   } catch (error: any) {
     message.error(`发送失败: ${error.message}`);
@@ -348,7 +349,43 @@ const onModeChange = () => {
 const clearSession = () => {
   chatHistory.value = [];
   currentSessionId.value = '';
+  localStorage.removeItem(CHAT_STORAGE_KEY);
   message.success('会话已清空');
+};
+
+const CHAT_STORAGE_KEY = 'assistant-chat-session';
+
+const persistChatSession = () => {
+  try {
+    localStorage.setItem(
+      CHAT_STORAGE_KEY,
+      JSON.stringify({
+        session_id: currentSessionId.value,
+        mode: assistantMode.value,
+        messages: chatHistory.value,
+        updated_at: new Date().toISOString(),
+      }),
+    );
+  } catch {
+    // ignore quota errors
+  }
+};
+
+const restoreChatSession = () => {
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (Array.isArray(data?.messages) && data.messages.length > 0) {
+      chatHistory.value = data.messages;
+      currentSessionId.value = data.session_id || '';
+      if (data.mode === 1 || data.mode === 2) {
+        assistantMode.value = data.mode;
+      }
+    }
+  } catch {
+    // ignore
+  }
 };
 
 // 导出会话
@@ -414,7 +451,8 @@ const scrollToBottom = () => {
 
 // 页面初始化
 onMounted(() => {
-  // 可以在这里加载历史会话或初始化操作
+  restoreChatSession();
+  nextTick(() => scrollToBottom());
 });
 </script>
 

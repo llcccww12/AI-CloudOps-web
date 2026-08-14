@@ -18,6 +18,9 @@ export function useRcaClusterNamespace() {
   const namespacesLoading = ref(false);
   const clusterId = ref<number | undefined>(undefined);
   const namespace = ref<string | undefined>(undefined);
+  /** 深链预填：在命名空间列表加载完成后优先选中 */
+  const preferredNamespace = ref<string | undefined>(undefined);
+  const preferredClusterId = ref<number | undefined>(undefined);
   const kubeConfigContent = ref('');
   let namespaceRequestId = 0;
 
@@ -30,7 +33,10 @@ export function useRcaClusterNamespace() {
       clustersLoading.value = true;
       const res = await getClustersListApi({ page: 1, size: 50 });
       clusters.value = res?.items || [];
-      if (!clusterId.value && clusters.value.length > 0 && clusters.value[0]?.id) {
+      const prefer = preferredClusterId.value;
+      if (prefer && clusters.value.some((item) => item.id === prefer)) {
+        clusterId.value = prefer;
+      } else if (!clusterId.value && clusters.value.length > 0 && clusters.value[0]?.id) {
         clusterId.value = clusters.value[0].id;
       }
     } catch {
@@ -44,7 +50,10 @@ export function useRcaClusterNamespace() {
     const requestId = ++namespaceRequestId;
     try {
       namespacesLoading.value = true;
-      namespace.value = undefined;
+      const keepPreferred = preferredNamespace.value?.trim();
+      if (!keepPreferred) {
+        namespace.value = undefined;
+      }
       namespaces.value = [];
       const res = await getNamespacesListApi(id, {
         cluster_id: id,
@@ -56,7 +65,13 @@ export function useRcaClusterNamespace() {
       }
       namespaces.value = res?.items || [];
       const names = namespaces.value.map((item) => item.name);
-      if (names.includes('default')) {
+      const prefer = preferredNamespace.value?.trim();
+      if (prefer && names.includes(prefer)) {
+        namespace.value = prefer;
+      } else if (prefer && prefer.length > 0) {
+        // 列表暂无该 NS 时仍写入，便于用户感知预填来源
+        namespace.value = prefer;
+      } else if (names.includes('default')) {
         namespace.value = 'default';
       } else if (names[0]) {
         namespace.value = names[0];
@@ -127,6 +142,8 @@ export function useRcaClusterNamespace() {
     namespacesLoading,
     clusterId,
     namespace,
+    preferredNamespace,
+    preferredClusterId,
     selectedCluster,
     fetchClusters,
     getSelectedKubeConfig,

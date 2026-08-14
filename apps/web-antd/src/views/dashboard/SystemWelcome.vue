@@ -631,7 +631,7 @@ const updateTrendChart = () => {
         name: 'CPU使用率',
         type: 'line',
         smooth: true,
-        data: generateDataWithCurrent(currentCpu),
+        data: generateDataWithCurrent('cpu', currentCpu),
         itemStyle: {
           color: '#1890ff'
         },
@@ -653,7 +653,7 @@ const updateTrendChart = () => {
         name: '内存使用率',
         type: 'line',
         smooth: true,
-        data: generateDataWithCurrent(currentMemory),
+        data: generateDataWithCurrent('memory', currentMemory),
         itemStyle: {
           color: '#52c41a'
         }
@@ -663,7 +663,7 @@ const updateTrendChart = () => {
         type: 'line',
         smooth: true,
         yAxisIndex: 1,
-        data: generateDataWithCurrent(systemMetrics && systemMetrics.load_avg_1 > 0 && systemMetrics.cpu_cores > 0 ? systemMetrics.load_avg_1 / systemMetrics.cpu_cores : 0),
+        data: generateDataWithCurrent('load', systemMetrics && systemMetrics.load_avg_1 > 0 && systemMetrics.cpu_cores > 0 ? systemMetrics.load_avg_1 / systemMetrics.cpu_cores : 0),
         itemStyle: {
           color: '#faad14'
         }
@@ -695,22 +695,50 @@ const generateTimeLabels = () => {
   return labels;
 };
 
-// 生成包含当前值的历史数据
-const generateDataWithCurrent = (currentValue: number) => {
-  const points = chartPeriod.value === '1h' ? 12 : chartPeriod.value === '24h' ? 12 : 7;
-  const data = [];
-  
-  // 生成历史数据（模拟波动）
-  for (let i = 0; i < points - 1; i++) {
-    const variation = (Math.random() - 0.5) * 20; // ±10的变化
-    const value = Math.max(0, Math.min(100, currentValue + variation));
-    data.push(parseFloat(value.toFixed(1)));
+const METRIC_HISTORY_KEY = 'system_welcome_metric_history_v1';
+
+type MetricHistorySample = {
+  t: number;
+  cpu: number;
+  memory: number;
+  load: number;
+};
+
+const readMetricHistory = (): MetricHistorySample[] => {
+  try {
+    const raw = sessionStorage.getItem(METRIC_HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
-  
-  // 最后一个点是当前值
-  data.push(parseFloat(currentValue.toFixed(1)));
-  
-  return data;
+};
+
+const pushMetricHistory = (sample: Omit<MetricHistorySample, 't'>) => {
+  const history = readMetricHistory();
+  history.push({ ...sample, t: Date.now() });
+  while (history.length > 60) {
+    history.shift();
+  }
+  sessionStorage.setItem(METRIC_HISTORY_KEY, JSON.stringify(history));
+};
+
+// 使用本会话内真实采样点；不足时用当前值填充，不再用随机数伪造趋势
+const generateDataWithCurrent = (
+  key: 'cpu' | 'memory' | 'load',
+  currentValue: number,
+) => {
+  const points = chartPeriod.value === '1h' ? 12 : chartPeriod.value === '24h' ? 12 : 7;
+  const history = readMetricHistory();
+  const series = history.slice(-points).map((item) =>
+    parseFloat(Number(item[key] ?? currentValue).toFixed(1)),
+  );
+  while (series.length < points) {
+    series.unshift(parseFloat(currentValue.toFixed(1)));
+  }
+  series[series.length - 1] = parseFloat(currentValue.toFixed(1));
+  return series;
 };
 
 // 更新所有图表
@@ -762,6 +790,16 @@ let dataTimer: any = null;
 const updateMetricsFromModuleData = () => {
   const systemMetrics = moduleData.value.systemMetrics;
   if (!systemMetrics) return;
+
+  const loadRatio =
+    systemMetrics.load_avg_1 > 0 && systemMetrics.cpu_cores > 0
+      ? systemMetrics.load_avg_1 / systemMetrics.cpu_cores
+      : 0;
+  pushMetricHistory({
+    cpu: systemMetrics.cpu_usage || 0,
+    memory: systemMetrics.memory_usage || 0,
+    load: loadRatio,
+  });
   
   // 更新CPU使用率指标
   const cpuUsage = systemMetrics.cpu_usage || 0;

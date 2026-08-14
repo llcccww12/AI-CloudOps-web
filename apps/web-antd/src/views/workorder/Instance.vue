@@ -1,5 +1,15 @@
 <template>
   <div class="instance-management-container">
+    <div class="scope-tabs">
+      <a-tabs v-model:activeKey="listScope" @change="handleScopeChange">
+        <a-tab-pane key="todo" tab="待办" />
+        <a-tab-pane key="mine" tab="我发起的" />
+        <a-tab-pane key="all" tab="全部" />
+        <a-tab-pane key="archive" tab="归档" />
+      </a-tabs>
+      <p class="scope-hint">{{ scopeHint }}</p>
+    </div>
+
     <div class="page-header">
       <div class="header-actions">
         <a-button
@@ -10,13 +20,13 @@
           <template #icon>
             <PlusOutlined />
           </template>
-          创建工单
+          <span>创建工单</span>
         </a-button>
         <a-button type="default" @click="handleCreateFromTemplate">
           <template #icon>
             <FileAddOutlined />
           </template>
-          从模板创建
+          <span>从模板创建</span>
         </a-button>
         <div class="search-filters">
           <a-input-search
@@ -31,7 +41,7 @@
             <template #icon>
               <ExportOutlined />
             </template>
-            导出
+            <span>导出</span>
           </a-button>
           <a-select
             v-model:value="statusFilter"
@@ -40,22 +50,34 @@
             @change="handleStatusChange"
           >
             <a-select-option :value="undefined">全部状态</a-select-option>
-            <a-select-option :value="InstanceStatus.Draft"
+            <a-select-option
+              v-if="listScope !== 'archive'"
+              :value="InstanceStatus.Draft"
               >草稿</a-select-option
             >
-            <a-select-option :value="InstanceStatus.Pending"
+            <a-select-option
+              v-if="listScope !== 'archive'"
+              :value="InstanceStatus.Pending"
               >待处理</a-select-option
             >
-            <a-select-option :value="InstanceStatus.Processing"
+            <a-select-option
+              v-if="listScope !== 'archive'"
+              :value="InstanceStatus.Processing"
               >处理中</a-select-option
             >
-            <a-select-option :value="InstanceStatus.Completed"
+            <a-select-option
+              v-if="listScope === 'archive' || listScope === 'mine'"
+              :value="InstanceStatus.Completed"
               >已完成</a-select-option
             >
-            <a-select-option :value="InstanceStatus.Rejected"
+            <a-select-option
+              v-if="listScope === 'archive' || listScope === 'mine'"
+              :value="InstanceStatus.Rejected"
               >已拒绝</a-select-option
             >
-            <a-select-option :value="InstanceStatus.Cancelled"
+            <a-select-option
+              v-if="listScope === 'archive' || listScope === 'mine'"
+              :value="InstanceStatus.Cancelled"
               >已取消</a-select-option
             >
           </a-select>
@@ -257,7 +279,7 @@
                         <MessageOutlined /> 添加评论
                       </a-menu-item>
                       <a-menu-item key="timeline">
-                        <HistoryOutlined /> 查看时间线
+                        <HistoryOutlined /> 查看时间轴
                       </a-menu-item>
                       <a-menu-item key="flow">
                         <PlayCircleOutlined /> 查看流转
@@ -270,57 +292,44 @@
                         提交工单
                       </a-menu-item>
                       <a-menu-item
-                        key="assign"
-                        v-if="
-                          [
-                            InstanceStatus.Pending,
-                            InstanceStatus.Processing,
-                          ].includes(record.status)
-                        "
+                        key="claim"
+                        v-if="canShowClaimAction(record)"
                       >
-                        分配处理人
+                        领取工单
+                      </a-menu-item>
+                      <a-menu-item
+                        key="assign"
+                        v-if="canShowAssignAction(record)"
+                      >
+                        转办协同
+                      </a-menu-item>
+                      <a-menu-item
+                        key="forward"
+                        v-if="canShowProcessAction(record)"
+                      >
+                        流转下一节点
                       </a-menu-item>
                       <a-menu-item
                         key="approve"
-                        v-if="
-                          [
-                            InstanceStatus.Pending,
-                            InstanceStatus.Processing,
-                          ].includes(record.status) && record.assignee_id
-                        "
+                        v-if="canShowProcessAction(record)"
                       >
                         审批通过
                       </a-menu-item>
                       <a-menu-item
                         key="reject"
-                        v-if="
-                          [
-                            InstanceStatus.Pending,
-                            InstanceStatus.Processing,
-                          ].includes(record.status) && record.assignee_id
-                        "
+                        v-if="canShowProcessAction(record)"
                       >
                         拒绝工单
                       </a-menu-item>
                       <a-menu-item
                         key="complete"
-                        v-if="
-                          [
-                            InstanceStatus.Pending,
-                            InstanceStatus.Processing,
-                          ].includes(record.status) && record.assignee_id
-                        "
+                        v-if="canShowProcessAction(record)"
                       >
-                        完成工单
+                        完成结单
                       </a-menu-item>
                       <a-menu-item
                         key="return"
-                        v-if="
-                          [
-                            InstanceStatus.Pending,
-                            InstanceStatus.Processing,
-                          ].includes(record.status) && record.assignee_id
-                        "
+                        v-if="canShowProcessAction(record)"
                       >
                         退回工单
                       </a-menu-item>
@@ -876,13 +885,13 @@
       </a-spin>
     </a-modal>
 
-    <!-- 详情对话框 -->
-    <a-modal
+    <!-- 详情抽屉 -->
+    <a-drawer
       :open="detailDialog.visible"
       title="工单详情"
       :width="previewDialogWidth"
-      :footer="null"
-      @cancel="
+      placement="right"
+      @close="
         () => {
           detailDialog.visible = false;
         }
@@ -1226,7 +1235,8 @@
             (detailDialog.availableActions.length > 0 ||
               detailDialog.actionsLoading) &&
             detailDialog.instance?.status !== InstanceStatus.Completed &&
-            detailDialog.instance?.status !== InstanceStatus.Rejected
+            detailDialog.instance?.status !== InstanceStatus.Rejected &&
+            detailDialog.instance?.status !== InstanceStatus.Cancelled
           "
         >
           <h3>可用操作</h3>
@@ -1241,13 +1251,31 @@
                 提交工单
               </a-button>
 
-              <!-- 分配处理人 -->
+              <!-- 领取工单 -->
+              <a-button
+                type="primary"
+                @click="handleActionClaim(detailDialog.instance)"
+                v-if="canShowClaimAction(detailDialog.instance)"
+              >
+                领取工单
+              </a-button>
+
+              <!-- 转办协同 -->
               <a-button
                 type="default"
                 @click="handleActionAssign(detailDialog.instance)"
-                v-if="detailDialog.availableActions.includes('assign')"
+                v-if="canShowAssignAction(detailDialog.instance)"
               >
-                分配处理人
+                转办协同
+              </a-button>
+
+              <!-- 流转下一节点 -->
+              <a-button
+                type="primary"
+                @click="handleActionForward(detailDialog.instance)"
+                v-if="canShowProcessAction(detailDialog.instance)"
+              >
+                流转下一节点
               </a-button>
 
               <!-- 审批通过 -->
@@ -1256,7 +1284,7 @@
                 @click="handleActionApprove(detailDialog.instance)"
                 v-if="
                   detailDialog.availableActions.includes('approve') &&
-                  detailDialog.instance.assignee_id
+                  canShowProcessAction(detailDialog.instance)
                 "
               >
                 审批通过
@@ -1268,7 +1296,7 @@
                 @click="handleActionReject(detailDialog.instance)"
                 v-if="
                   detailDialog.availableActions.includes('reject') &&
-                  detailDialog.instance.assignee_id
+                  canShowProcessAction(detailDialog.instance)
                 "
               >
                 拒绝
@@ -1298,10 +1326,10 @@
                 @click="handleActionComplete(detailDialog.instance)"
                 v-if="
                   detailDialog.availableActions.includes('complete') &&
-                  detailDialog.instance.assignee_id
+                  canShowProcessAction(detailDialog.instance)
                 "
               >
-                完成工单
+                完成结单
               </a-button>
 
               <!-- 退回工单 -->
@@ -1310,7 +1338,7 @@
                 @click="handleActionReturn(detailDialog.instance)"
                 v-if="
                   detailDialog.availableActions.includes('return') &&
-                  detailDialog.instance.assignee_id
+                  canShowProcessAction(detailDialog.instance)
                 "
               >
                 退回工单
@@ -1334,7 +1362,7 @@
               type="default"
               @click="handleViewTimeline(detailDialog.instance)"
             >
-              <HistoryOutlined /> 查看时间线
+              <HistoryOutlined /> 查看时间轴
             </a-button>
             <a-button
               type="default"
@@ -1351,7 +1379,7 @@
           </div>
         </div>
       </div>
-    </a-modal>
+    </a-drawer>
 
     <!-- 组件 -->
     <WorkorderComments
@@ -1365,99 +1393,87 @@
     <!-- 通知记录对话框 -->
     <a-modal
       :open="notificationLogsDialog.visible"
-      title="通知发送记录"
-      :width="800"
+      title="通知记录"
+      :width="760"
       :footer="null"
+      wrap-class-name="wo-record-modal"
       @cancel="handleCloseNotificationLogsDialog"
-      class="notification-logs-dialog"
     >
-      <a-spin :spinning="notificationLogsLoading">
-        <div
-          v-if="notificationLogs.length > 0"
-          class="notification-logs-content"
-        >
-          <a-list :data-source="notificationLogs" item-layout="vertical">
-            <template #renderItem="{ item }">
-              <a-list-item>
-                <a-list-item-meta>
-                  <template #title>
-                    <div class="notification-title">
-                      <span class="event-type">{{ item.event_type }}</span>
-                      <a-tag
-                        :color="getInstanceSendLogStatusColor(item.status)"
-                        class="status-tag"
-                      >
-                        {{ getInstanceSendLogStatusText(item.status) }}
-                      </a-tag>
-                      <a-tag v-if="item.channel" color="blue">{{ item.channel }}</a-tag>
-                    </div>
-                  </template>
-                  <template #description>
-                    <div class="notification-meta">
-                      <div class="meta-item">
-                        <span class="label">发送时间：</span>
-                        <span class="value">{{
-                          formatDateTime(item.send_at)
-                        }}</span>
-                      </div>
-                      <div class="meta-item" v-if="item.recipient_addr">
-                        <span class="label">收件人：</span>
-                        <span class="value">{{ item.recipient_addr }}</span>
-                      </div>
-                      <div class="meta-item" v-if="item.recipient_name">
-                        <span class="label">收件人姓名：</span>
-                        <span class="value">{{ item.recipient_name }}</span>
-                      </div>
-                    </div>
-                  </template>
-                </a-list-item-meta>
-                <template #extra>
-                  <div class="notification-actions">
-                    <a-button
-                      size="small"
-                      type="text"
-                      @click="viewNotificationDetail(item)"
-                    >
-                      查看详情
-                    </a-button>
-                  </div>
-                </template>
-                <div v-if="item.error_message" class="error-message">
-                  <a-alert
-                    :message="item.error_message"
-                    type="error"
-                    show-icon
-                  />
-                </div>
-              </a-list-item>
-            </template>
-          </a-list>
-
-          <!-- 分页组件 -->
-          <div class="notification-pagination">
-            <a-pagination
-              v-model:current="notificationLogsPagination.current"
-              v-model:page-size="notificationLogsPagination.pageSize"
-              :total="notificationLogsPagination.total"
-              :show-size-changer="true"
-              :show-quick-jumper="true"
-              :show-total="(total: number) => `共 ${total} 条`"
-              :page-size-options="['10', '20', '50']"
-              @change="handleNotificationLogsPageChange"
-              @show-size-change="handleNotificationLogsPageChange"
-            />
+      <div class="wo-record-shell">
+        <div class="wo-record-toolbar">
+          <div class="wo-record-toolbar-meta">
+            共 {{ notificationLogsPagination.total }} 条发送记录
+          </div>
+          <div class="wo-record-toolbar-actions">
+            <a-button
+              size="small"
+              :loading="notificationLogsLoading"
+              @click="loadNotificationLogs()"
+            >
+              刷新
+            </a-button>
           </div>
         </div>
-        <div v-else class="no-notifications">
-          <a-empty description="暂无通知发送记录" />
+        <div class="wo-record-scroll">
+          <a-spin :spinning="notificationLogsLoading">
+            <div v-if="notificationLogs.length > 0">
+              <div
+                v-for="item in notificationLogs"
+                :key="item.id"
+                class="wo-log-item"
+              >
+                <div class="wo-log-title">
+                  <span class="wo-log-name">{{ getEventTypeName(item.event_type) }}</span>
+                  <a-tag :color="getInstanceSendLogStatusColor(item.status)">
+                    {{ getInstanceSendLogStatusText(item.status) }}
+                  </a-tag>
+                  <a-tag v-if="item.channel">
+                    {{ getNotificationChannelName(item.channel) }}
+                  </a-tag>
+                </div>
+                <div class="wo-log-meta">
+                  <div>发送时间：<strong>{{ formatDateTime(item.send_at) }}</strong></div>
+                  <div v-if="item.recipient_name">
+                    收件人：<strong>{{ item.recipient_name }}</strong>
+                  </div>
+                  <div v-if="item.recipient_addr">
+                    地址：<strong>{{ item.recipient_addr }}</strong>
+                  </div>
+                </div>
+                <a-alert
+                  v-if="item.error_message"
+                  style="margin-top: 8px"
+                  :message="item.error_message"
+                  type="error"
+                  show-icon
+                />
+                <a-button type="link" size="small" @click="viewNotificationDetail(item)">
+                  详情
+                </a-button>
+              </div>
+            </div>
+            <a-empty v-else description="暂无通知发送记录" />
+          </a-spin>
         </div>
-      </a-spin>
+        <div v-if="notificationLogsPagination.total > 0" class="wo-record-footer">
+          <a-pagination
+            v-model:current="notificationLogsPagination.current"
+            v-model:page-size="notificationLogsPagination.pageSize"
+            :total="notificationLogsPagination.total"
+            :show-size-changer="true"
+            :show-total="(total: number) => `共 ${total} 条`"
+            :page-size-options="['10', '20', '50']"
+            @change="handleNotificationLogsPageChange"
+            @show-size-change="handleNotificationLogsPageChange"
+          />
+        </div>
+      </div>
     </a-modal>
 
     <!-- 分配处理人对话框 -->
     <a-modal
       :open="assignDialog.visible"
-      title="分配处理人"
+      :title="assignDialogTitle"
       :width="dialogWidth"
       @ok="saveAssign"
       @cancel="
@@ -1469,6 +1485,12 @@
       class="responsive-modal"
     >
       <a-form :model="assignDialog.form" layout="vertical">
+        <a-alert
+          style="margin-bottom: 16px"
+          type="info"
+          show-icon
+          :message="assignDialogHint"
+        />
         <a-form-item
           label="选择处理人"
           name="assignee_id"
@@ -1522,6 +1544,21 @@
               </div>
             </a-select-option>
           </a-select>
+        </a-form-item>
+        <a-form-item
+          :label="assignDialog.mode === 'forward' ? '流转说明' : '转办说明'"
+        >
+          <a-textarea
+            v-model:value="assignDialog.form.comment"
+            :placeholder="
+              assignDialog.mode === 'forward'
+                ? '说明本节点已处理内容和需要下一级做什么'
+                : '说明转办原因，便于接手人了解背景'
+            "
+            :rows="3"
+            :maxlength="500"
+            show-count
+          />
         </a-form-item>
       </a-form>
     </a-modal>
@@ -1741,6 +1778,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, onBeforeUnmount, computed } from 'vue';
 import { useRoute } from 'vue-router';
+import { useUserStore } from '@vben/stores';
 import { message, Modal } from 'ant-design-vue';
 import dayjs from 'dayjs';
 import {
@@ -1778,9 +1816,11 @@ import {
   type CancelWorkorderInstanceReq,
   type CompleteWorkorderInstanceReq,
   type ReturnWorkorderInstanceReq,
+  type WorkorderInstanceScope,
   InstanceStatus,
   Priority,
   listWorkorderInstance,
+  exportWorkorderInstance,
   detailWorkorderInstance,
   createWorkorderInstance,
   updateWorkorderInstance,
@@ -1800,6 +1840,7 @@ import {
 import WorkorderComments from './components/WorkorderComments.vue';
 import WorkorderTimeline from './components/WorkorderTimeline.vue';
 import WorkorderFlow from './components/WorkorderFlow.vue';
+import './components/workorder-record-dialog.css';
 
 import { type GetUserListReq, getUserList } from '#/api/core/system/user';
 
@@ -1839,6 +1880,8 @@ import {
   type NotificationLog,
   type ListSendLogReq,
   getSendLogs,
+  getEventTypeName,
+  getNotificationChannelName,
 } from '#/api/core/workorder/workorder_notification';
 
 // 列定义
@@ -1896,6 +1939,57 @@ const loading = ref(false);
 const dialogBusy = ref(false);
 const submitting = ref(false);
 const searchQuery = ref('');
+const listScope = ref<WorkorderInstanceScope>('todo');
+const userStore = useUserStore();
+const currentUserId = computed(() => {
+  const info = userStore.userInfo as any;
+  return Number(info?.userId || info?.id || info?.user_id || 0);
+});
+
+const scopeHint = computed(() => {
+  switch (listScope.value) {
+    case 'todo':
+      return '待办只展示指派给你、当前节点需要你处理的工单。';
+    case 'mine':
+      return '我发起的展示你创建的工单，含进行中和已归档。';
+    case 'all':
+      return '全部展示尚未结束的工单。若你不是当前处理人，只能评论，不能审批或完成。';
+    case 'archive':
+      return '归档展示已完成、已拒绝、已取消的工单，便于查看流转和溯源。';
+    default:
+      return '';
+  }
+});
+
+/** 已指派时仅当前处理人可审批/完成/流转 */
+const canShowProcessAction = (record: WorkorderInstanceItem): boolean => {
+  if (
+    ![InstanceStatus.Pending, InstanceStatus.Processing].includes(record.status)
+  ) {
+    return false;
+  }
+  if (!record.assignee_id) {
+    return false;
+  }
+  const uid = currentUserId.value;
+  return uid > 0 && Number(record.assignee_id) === uid;
+};
+
+/** 当前处理人可转办给同事 */
+const canShowAssignAction = (record: WorkorderInstanceItem): boolean => {
+  return canShowProcessAction(record);
+};
+
+/** 未领取的进行中工单可领取 */
+const canShowClaimAction = (record: WorkorderInstanceItem): boolean => {
+  if (
+    ![InstanceStatus.Pending, InstanceStatus.Processing].includes(record.status)
+  ) {
+    return false;
+  }
+  return !record.assignee_id;
+};
+
 const statusFilter = ref<number | undefined>(undefined);
 const priorityFilter = ref<number | undefined>(undefined);
 const processFilter = ref<number | undefined>(undefined);
@@ -2027,10 +2121,22 @@ const detailDialog = reactive({
 const assignDialog = reactive({
   visible: false,
   instanceId: 0,
+  mode: 'transfer' as 'transfer' | 'forward',
   form: {
     assignee_id: undefined as number | undefined,
+    comment: '',
   },
 });
+
+const assignDialogTitle = computed(() =>
+  assignDialog.mode === 'forward' ? '流转到下一节点' : '转办协同',
+);
+
+const assignDialogHint = computed(() =>
+  assignDialog.mode === 'forward'
+    ? '本节点处理完成后，将工单交给下一级（如硬件工程师）。下一节点处理人会在自己的待办中看到它。'
+    : '当前问题需要同事协同或代为处理时，转办后仍停留在当前节点。',
+);
 
 // 审批对话框
 const approvalDialog = reactive({
@@ -2846,6 +2952,7 @@ const loadInstances = async () => {
       status: statusFilter.value || undefined,
       priority: priorityFilter.value || undefined,
       process_id: processFilter.value || undefined,
+      scope: listScope.value,
     };
 
     const res = await listWorkorderInstance(params);
@@ -2866,24 +2973,28 @@ const loadInstances = async () => {
 // 加载真实统计数据
 const loadStats = async () => {
   try {
+    const scope = listScope.value;
     // 获取所有状态的统计数据，使用最小size=10来满足验证要求
     const [totalRes, pendingRes, processingRes, completedRes] =
       await Promise.all([
-        listWorkorderInstance({ page: 1, size: 10 }),
+        listWorkorderInstance({ page: 1, size: 10, scope }),
         listWorkorderInstance({
           page: 1,
           size: 10,
           status: InstanceStatus.Pending,
+          scope,
         }),
         listWorkorderInstance({
           page: 1,
           size: 10,
           status: InstanceStatus.Processing,
+          scope,
         }),
         listWorkorderInstance({
           page: 1,
           size: 10,
           status: InstanceStatus.Completed,
+          scope,
         }),
       ]);
 
@@ -2921,10 +3032,44 @@ const handleSearch = handleFilterChange;
 const handleStatusChange = handleFilterChange;
 const handlePriorityChange = handleFilterChange;
 const handleProcessChange = handleFilterChange;
+const handleScopeChange = () => {
+  currentPage.value = 1;
+  statusFilter.value = undefined;
+  loadInstances();
+};
 
 // 导出功能
-const handleExport = () => {
-  message.info('导出功能开发中...');
+const handleExport = async () => {
+  try {
+    message.loading({ content: '正在导出...', key: 'wo-export', duration: 0 });
+    const blob = (await exportWorkorderInstance({
+      search: searchQuery.value || undefined,
+      status: statusFilter.value || undefined,
+      priority: priorityFilter.value || undefined,
+      process_id: processFilter.value || undefined,
+      scope: listScope.value,
+    })) as Blob;
+    const text = await blob.text();
+    if (text.trimStart().startsWith('{')) {
+      try {
+        const err = JSON.parse(text);
+        throw new Error(err.message || '导出失败');
+      } catch (e: any) {
+        if (e?.message) throw e;
+        throw new Error('导出失败');
+      }
+    }
+    const csvBlob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(csvBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `workorder_instances_${dayjs().format('YYYYMMDD_HHmmss')}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    message.success({ content: '导出成功', key: 'wo-export' });
+  } catch (error: any) {
+    message.error({ content: error.message || '导出失败', key: 'wo-export' });
+  }
 };
 
 const handleCreateInstance = () => {
@@ -3341,6 +3486,12 @@ const handleCommand = async (command: string, row: WorkorderInstanceItem) => {
     case 'assign':
       await handleActionAssign(row);
       break;
+    case 'forward':
+      await handleActionForward(row);
+      break;
+    case 'claim':
+      await handleActionClaim(row);
+      break;
     case 'approve':
       await handleActionApprove(row);
       break;
@@ -3371,7 +3522,7 @@ const handleViewComments = (instance: WorkorderInstanceItem) => {
 };
 
 const handleViewTimeline = (instance: WorkorderInstanceItem) => {
-  timelineRef.value?.showTimeline(instance.id);
+  timelineRef.value?.showTimeline(instance);
 };
 
 const handleViewFlow = (instance: WorkorderInstanceItem) => {
@@ -3409,10 +3560,10 @@ const viewNotificationDetail = (log: NotificationLog) => {
     content: `
       <div style="margin-top: 16px;">
         <div style="margin-bottom: 12px;">
-          <strong>事件类型：</strong> ${log.event_type}
+          <strong>事件类型：</strong> ${getEventTypeName(log.event_type) || log.event_type}
         </div>
         <div style="margin-bottom: 12px;">
-          <strong>发送渠道：</strong> ${log.channel}
+          <strong>发送渠道：</strong> ${getNotificationChannelName(log.channel) || log.channel}
         </div>
         <div style="margin-bottom: 12px;">
           <strong>发送状态：</strong> 
@@ -3447,7 +3598,8 @@ const handleActionWithPermission = async (
     if (!normalizedActions.includes(action)) {
       const actionMap: Record<string, string> = {
         submit: '提交',
-        assign: '分配',
+        assign: '转办',
+        forward: '流转',
         approve: '审批',
         reject: '拒绝',
         cancel: '取消',
@@ -3471,14 +3623,26 @@ const handleActionWithPermission = async (
     }
 
     await callback(instance);
-  } catch (error) {}
+  } catch (error: any) {
+    message.error(error?.message || '权限校验失败，请刷新后重试');
+  }
 };
 
 const handleActionSubmit = (instance: WorkorderInstanceItem) =>
   handleActionWithPermission(instance, 'submit', handleSubmitInstance);
 
 const handleActionAssign = (instance: WorkorderInstanceItem) =>
-  handleActionWithPermission(instance, 'assign', showAssignDialog);
+  handleActionWithPermission(instance, 'assign', (inst) =>
+    showAssignDialog(inst, 'transfer'),
+  );
+
+const handleActionForward = (instance: WorkorderInstanceItem) =>
+  handleActionWithPermission(instance, 'assign', (inst) =>
+    showAssignDialog(inst, 'forward'),
+  );
+
+const handleActionClaim = (instance: WorkorderInstanceItem) =>
+  handleActionWithPermission(instance, 'assign', claimInstance);
 
 const handleActionApprove = (instance: WorkorderInstanceItem) =>
   handleActionWithPermission(instance, 'approve', (inst) =>
@@ -3540,11 +3704,37 @@ const handleSubmitInstance = async (instance: WorkorderInstanceItem) => {
   });
 };
 
-const showAssignDialog = (instance: WorkorderInstanceItem) => {
+const showAssignDialog = (
+  instance: WorkorderInstanceItem,
+  mode: 'transfer' | 'forward' = 'transfer',
+) => {
   assignDialog.instanceId = instance.id;
+  assignDialog.mode = mode;
   assignDialog.form.assignee_id = undefined;
+  assignDialog.form.comment = '';
   assignDialog.visible = true;
   loadDialogUsers(true);
+};
+
+const claimInstance = async (instance: WorkorderInstanceItem) => {
+  const uid = currentUserId.value;
+  if (!uid) {
+    message.error('无法识别当前用户，请重新登录');
+    return;
+  }
+  loading.value = true;
+  try {
+    await assignWorkorderInstance({
+      id: instance.id,
+      assignee_id: uid,
+      mode: 'transfer',
+      comment: '领取工单',
+    });
+    message.success('已领取，可在待办中处理');
+    await syncStepStatus(instance.id, 'assign');
+  } finally {
+    loading.value = false;
+  }
 };
 
 const saveAssign = async () => {
@@ -3558,11 +3748,12 @@ const saveAssign = async () => {
     const params: AssignWorkorderInstanceReq = {
       id: assignDialog.instanceId,
       assignee_id: Number(assignDialog.form.assignee_id),
+      mode: assignDialog.mode,
+      comment: assignDialog.form.comment || undefined,
     };
 
     await assignWorkorderInstance(params);
 
-    // 查找分配的用户名称
     const assignedUser = users.value.find(
       (user) => user.id === Number(assignDialog.form.assignee_id),
     );
@@ -3570,14 +3761,16 @@ const saveAssign = async () => {
       ? assignedUser.real_name || assignedUser.username
       : '未知用户';
 
-    message.success(`工单已分配给 ${assigneeName}`);
+    message.success(
+      assignDialog.mode === 'forward'
+        ? `已流转给 ${assigneeName}`
+        : `已转办给 ${assigneeName}`,
+    );
 
     assignDialog.visible = false;
-
-    // 使用新的同步机制
     await syncStepStatus(assignDialog.instanceId, 'assign');
   } catch (error: any) {
-    message.error(`分配处理人失败: ${error.message || '未知错误'}`);
+    message.error(`指派失败: ${error.message || '未知错误'}`);
   } finally {
     loading.value = false;
   }
@@ -4055,6 +4248,24 @@ onMounted(async () => {
     if (instanceId > 0) {
       await handleViewInstance({ id: instanceId } as WorkorderInstanceItem);
     }
+
+    const rawTemplateId = route.query.template_id;
+    const templateIdStr = Array.isArray(rawTemplateId)
+      ? rawTemplateId[0]
+      : rawTemplateId;
+    const templateId = Number(templateIdStr);
+    if (templateId > 0) {
+      templateDialog.form = {
+        template_id: templateId,
+        title: '',
+        description: '',
+        priority: Priority.Normal,
+        tags: [],
+        due_date: undefined,
+      };
+      templateDialog.visible = true;
+      await loadTemplates();
+    }
   } catch (error: any) {
     message.error(
       `初始化数据加载失败: ${error.message || '未知错误'}, 请刷新页面重试`,
@@ -4071,6 +4282,20 @@ onMounted(async () => {
   min-height: 100vh;
 }
 
+.scope-tabs {
+  margin-bottom: 8px;
+}
+
+.scope-hint {
+  margin: 4px 0 12px;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+}
+
+.scope-tabs :deep(.ant-tabs-nav) {
+  margin-bottom: 0;
+}
+
 .page-header {
   margin-bottom: 20px;
 }
@@ -4080,6 +4305,15 @@ onMounted(async () => {
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
+}
+
+.header-actions :deep(.ant-btn) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  white-space: nowrap;
 }
 
 .btn-create {
@@ -4435,7 +4669,6 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 
-/* 响应式对话框 */
 .responsive-modal :deep(.ant-modal) {
   max-width: calc(100vw - 16px);
   margin: 8px;
@@ -5204,65 +5437,5 @@ onMounted(async () => {
     font-size: 13px;
     padding: 8px 12px;
   }
-}
-
-/* 通知记录对话框样式 */
-.notification-logs-dialog .notification-logs-content {
-  max-height: 500px;
-  overflow-y: auto;
-}
-
-.notification-logs-dialog .notification-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.notification-logs-dialog .event-type {
-  font-weight: 500;
-  color: #1890ff;
-}
-
-.notification-logs-dialog .notification-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.notification-logs-dialog .meta-item {
-  display: flex;
-  align-items: center;
-}
-
-.notification-logs-dialog .meta-item .label {
-  color: #666;
-  margin-right: 8px;
-  min-width: 80px;
-}
-
-.notification-logs-dialog .meta-item .value {
-  color: #333;
-}
-
-.notification-logs-dialog .notification-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.notification-logs-dialog .error-message {
-  margin-top: 12px;
-}
-
-.notification-logs-dialog .no-notifications {
-  text-align: center;
-  padding: 40px 0;
-}
-
-.notification-logs-dialog .notification-pagination {
-  margin-top: 16px;
-  text-align: center;
-  padding: 16px 0;
-  border-top: 1px solid #f0f0f0;
 }
 </style>

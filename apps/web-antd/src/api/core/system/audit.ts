@@ -165,6 +165,23 @@ export async function archiveAuditLogsApi(data: ArchiveAuditLogsRequest) {
   return requestClient.post('/audit/archive', data);
 }
 
+export interface ExportAuditLogsRequest {
+  search?: string;
+  operation_type?: string;
+  target_type?: string;
+  status_code?: number;
+  start_time?: number;
+  end_time?: number;
+  limit?: number;
+}
+
+export async function exportAuditLogsApi(params: ExportAuditLogsRequest) {
+  return requestClient.get('/audit/export', {
+    params,
+    responseType: 'blob',
+  });
+}
+
 // 创建接口
 export async function createAuditLogApi(data: CreateAuditLogRequest) {
   return requestClient.post('/audit/create', data);

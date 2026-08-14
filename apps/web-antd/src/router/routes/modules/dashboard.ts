@@ -43,12 +43,21 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
-        name: '角色权限',
+        name: '角色管理',
         path: '/system_role',
         component: () => import('#/views/dashboard/SystemRole.vue'),
         meta: {
           icon: 'lucide:users',
-          title: '角色权限',
+          title: '角色管理',
+        },
+      },
+      {
+        name: '部门管理',
+        path: '/system_department',
+        component: () => import('#/views/dashboard/SystemDepartment.vue'),
+        meta: {
+          icon: 'lucide:building-2',
+          title: '部门管理',
         },
       },
       {

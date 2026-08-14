@@ -14,6 +14,30 @@ export interface AddDocumentRequest {
   title: string; // 文档标题
   content: string; // 文档内容
   file_name: string; // 文件名，必须包含文件扩展名
+  use_when?: string; // 适用场景 / 何时查阅
+}
+
+export interface KnowledgeDocumentItem {
+  document_id: string;
+  filename: string;
+  original_filename?: string;
+  title: string;
+  use_when?: string;
+  tags?: string[];
+  source?: string;
+  file_size?: number;
+  indexed?: boolean;
+  document_count?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface KnowledgeDocumentsResponse {
+  documents: KnowledgeDocumentItem[];
+  documents_count: number;
+  vector_count: number;
+  knowledge_base_path?: string;
+  timestamp: string;
 }
 
 // 智能助手响应模型
@@ -142,9 +166,14 @@ export async function clearAssistantCache() {
 }
 
 // 上传知识库文件
-export async function uploadKnowledgeFile(file: File) {
+export async function uploadKnowledgeFile(
+  file: File,
+  options?: { title?: string; use_when?: string },
+) {
   const formData = new FormData();
   formData.append('file', file);
+  if (options?.title) formData.append('title', options.title);
+  if (options?.use_when) formData.append('use_when', options.use_when);
   return requestClientAIOps.post('/assistant/upload-knowledge-file', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
@@ -153,6 +182,47 @@ export async function uploadKnowledgeFile(file: File) {
 // 添加知识库文档
 export async function addDocument(data: AddDocumentRequest) {
   return requestClientAIOps.post('/assistant/add-document', data);
+}
+
+// 列出知识库文档目录
+export async function listKnowledgeDocuments() {
+  return requestClientAIOps.get<KnowledgeDocumentsResponse>('/assistant/knowledge/documents');
+}
+
+export interface KnowledgeDocumentDetail extends KnowledgeDocumentItem {
+  content: string;
+  raw_content?: string;
+}
+
+export interface UpdateKnowledgeDocumentRequest {
+  title?: string;
+  use_when?: string;
+  content?: string;
+}
+
+// 查看知识库文档
+export async function getKnowledgeDocument(documentKey: string) {
+  return requestClientAIOps.get<KnowledgeDocumentDetail>(
+    '/assistant/knowledge/document',
+    { params: { key: documentKey } },
+  );
+}
+
+// 更新知识库文档
+export async function updateKnowledgeDocument(
+  documentKey: string,
+  data: UpdateKnowledgeDocumentRequest,
+) {
+  return requestClientAIOps.put('/assistant/knowledge/document', data, {
+    params: { key: documentKey },
+  });
+}
+
+// 删除知识库文档
+export async function deleteKnowledgeDocument(documentKey: string) {
+  return requestClientAIOps.delete('/assistant/knowledge/document', {
+    params: { key: documentKey },
+  });
 }
 
 // 获取智能助手配置

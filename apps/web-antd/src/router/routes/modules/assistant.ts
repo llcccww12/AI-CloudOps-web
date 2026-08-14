@@ -41,15 +41,6 @@ const routes: RouteRecordRaw[] = [
           title: '知识库管理',
         },
       },
-      {
-        name: 'AssistantInfo',
-        path: '/assistant/info',
-        component: () => import('#/views/assistant/AssistantInfo.vue'),
-        meta: {
-          icon: 'lucide:info',
-          title: '服务信息',
-        },
-      },
     ],
   },
 ];

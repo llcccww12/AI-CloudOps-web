@@ -471,29 +471,33 @@
                 v-for="channel in getAllNotificationChannels()" 
                 :key="channel"
               >
-                <a-checkbox :value="channel">
+                <a-checkbox :value="channel" :disabled="channel === NotificationChannel.INBOX">
                   <span class="channel-option">
                     <component :is="getChannelIcon(channel)" :style="{ color: getChannelIconColor(channel) }" />
                     {{ getNotificationChannelName(channel) }}
+                    <span v-if="channel === NotificationChannel.INBOX" class="text-gray" style="margin-left: 4px;">（右上角铃铛，默认开启）</span>
                   </span>
                 </a-checkbox>
               </a-col>
             </a-row>
           </a-checkbox-group>
-          <div class="form-help" style="margin-top: 8px;" v-if="notificationDialog.form.channels.includes('feishu') || notificationDialog.form.channels.includes('email')">
+          <div class="form-help" style="margin-top: 8px;">
             <a-alert
-              message="通知渠道配置建议"
+              message="通知渠道说明"
               type="info"
               show-icon
               banner
             >
               <template #description>
                 <div>
+                  <div style="margin-bottom: 4px;">
+                    <strong>站内信：</strong>工单创建人、当前处理人以及配置的接收人会在右上角铃铛收到消息，点击可跳转到工单详情。无需配置邮箱或飞书。
+                  </div>
                   <div v-if="notificationDialog.form.channels.includes('feishu')" style="margin-bottom: 4px;">
-                    <strong>飞书通知：</strong>需要确保接收人配置了有效的用户ID，系统会根据用户ID查找对应的飞书账号进行消息推送
+                    <strong>飞书通知：</strong>需要确保接收人配置了有效的飞书用户ID
                   </div>
                   <div v-if="notificationDialog.form.channels.includes('email')">
-                    <strong>邮件通知：</strong>需要确保接收人配置了有效的邮箱地址，支持通过用户ID、角色ID或部门ID自动获取邮箱
+                    <strong>邮件通知：</strong>需要确保接收人配置了有效的邮箱地址
                   </div>
                 </div>
               </template>
@@ -549,24 +553,40 @@
           </div>
         </a-form-item>
 
-        <a-form-item label="接收人角色ID" name="recipientRoles" v-if="notificationDialog.form.recipientTypes.includes('role')">
+        <a-form-item label="接收人角色" name="recipientRoles" v-if="notificationDialog.form.recipientTypes.includes('role')">
           <a-select 
             v-model:value="notificationDialog.form.recipientRoles" 
-            mode="tags"
-            placeholder="请输入角色ID"
+            mode="multiple"
+            placeholder="请选择角色"
             style="width: 100%"
-            :token-separators="[',', ';', ' ']"
+            :options="roleOptions"
+            :loading="roleLoading"
+            option-filter-prop="label"
+            show-search
+            @dropdown-visible-change="(open: boolean) => open && roleOptions.length === 0 && loadRoles()"
           />
+          <div class="form-help" style="margin-top: 4px;">
+            <small class="text-gray">将按角色展开关联用户发送通知</small>
+          </div>
         </a-form-item>
 
-        <a-form-item label="接收人部门ID" name="recipientDepts" v-if="notificationDialog.form.recipientTypes.includes('dept')">
-          <a-select 
-            v-model:value="notificationDialog.form.recipientDepts" 
-            mode="tags"
-            placeholder="请输入部门ID"
+        <a-form-item label="接收人部门" name="recipientDepts" v-if="notificationDialog.form.recipientTypes.includes('dept')">
+          <a-tree-select
+            v-model:value="notificationDialog.form.recipientDepts"
+            tree-checkable
+            :tree-data="departmentTreeOptions"
+            :loading="departmentLoading"
+            placeholder="请选择部门"
             style="width: 100%"
-            :token-separators="[',', ';', ' ']"
+            tree-node-filter-prop="title"
+            show-search
+            allow-clear
+            :show-checked-strategy="TreeSelect.SHOW_CHILD"
+            @dropdown-visible-change="(open: boolean) => open && departmentTreeOptions.length === 0 && loadDepartments()"
           />
+          <div class="form-help" style="margin-top: 4px;">
+            <small class="text-gray">将按部门展开用户发送通知</small>
+          </div>
         </a-form-item>
 
         <a-form-item label="消息模板" name="messageTemplate">
@@ -579,7 +599,7 @@
           />
           <div class="template-help">
             <a-alert
-              message="📋 AI-CloudOps 通知系统支持的模板变量"
+              message="📋 CacOps 通知系统支持的模板变量"
               type="info"
               show-icon
               banner
@@ -640,7 +660,7 @@
                   <div class="variable-group">
                     <strong>🏢 企业信息变量</strong>
                     <div class="variable-list">
-                      <span class="variable-item">{company_name} - 公司名称 (AI-CloudOps)</span>
+                      <span class="variable-item">{company_name} - 公司名称 (CacOps)</span>
                       <span class="variable-item">{platform_name} - 平台名称</span>
                       <span class="variable-item">{department} - 部门名称</span>
                       <span class="variable-item">{service_hotline} - 服务热线</span>
@@ -960,7 +980,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue';
-import { message, Modal } from 'ant-design-vue';
+import { message, Modal, TreeSelect } from 'ant-design-vue';
 import { debounce } from 'lodash-es';
 import dayjs from 'dayjs';
 import type { FormInstance } from 'ant-design-vue';
@@ -1011,6 +1031,70 @@ import { listWorkorderProcess, type WorkorderProcessItem } from '#/api/core/work
 import { listWorkorderTemplate, type WorkorderTemplateItem } from '#/api/core/workorder/workorder_template';
 import { listWorkorderCategory, type WorkorderCategoryItem } from '#/api/core/workorder/workorder_category';
 import { getUserList, type User } from '#/api/core/system/user';
+import { listRolesApi } from '#/api/core/system/system';
+import {
+  getDepartmentTreeApi,
+  type Department,
+} from '#/api/core/system/department';
+
+const roleOptions = ref<{ label: string; value: string }[]>([]);
+const roleLoading = ref(false);
+const departmentTreeOptions = ref<any[]>([]);
+const departmentLoading = ref(false);
+
+const mapDepartmentTree = (nodes: Department[] = []): any[] =>
+  nodes.map((node) => ({
+    title: node.name,
+    value: String(node.id),
+    key: String(node.id),
+    children: node.children?.length ? mapDepartmentTree(node.children) : undefined,
+  }));
+
+const loadRoles = async (): Promise<void> => {
+  if (roleLoading.value) return;
+  roleLoading.value = true;
+  try {
+    const allRoles: any[] = [];
+    let page = 1;
+    const pageSize = 100;
+    let hasMore = true;
+
+    while (hasMore) {
+      const res = await listRolesApi({ page, size: pageSize, status: 1 });
+      const items = (res as any)?.items || [];
+      allRoles.push(...items);
+      const total = (res as any)?.total || 0;
+      if (items.length < pageSize || allRoles.length >= total) {
+        hasMore = false;
+      } else {
+        page += 1;
+      }
+    }
+
+    roleOptions.value = allRoles.map((role: any) => ({
+      label: `${role.name}${role.code ? ` (${role.code})` : ''}`,
+      value: String(role.id),
+    }));
+  } catch (error) {
+    message.error('加载角色列表失败');
+  } finally {
+    roleLoading.value = false;
+  }
+};
+
+const loadDepartments = async (): Promise<void> => {
+  if (departmentLoading.value) return;
+  departmentLoading.value = true;
+  try {
+    const res = await getDepartmentTreeApi();
+    const tree = (res as any)?.items || (res as any)?.results || (Array.isArray(res) ? res : []);
+    departmentTreeOptions.value = mapDepartmentTree(tree as Department[]);
+  } catch (error) {
+    message.error('加载部门树失败');
+  } finally {
+    departmentLoading.value = false;
+  }
+};
 
 // 表单ref
 const formRef = ref<FormInstance>();
@@ -1164,13 +1248,13 @@ const notificationDialog = reactive({
     eventTypes: [] as string[],
     triggerType: NotificationTrigger.IMMEDIATE as string,
     triggerCondition: '',
-    channels: [] as string[],
-    recipientTypes: [] as string[],
+    channels: [NotificationChannel.INBOX] as string[],
+    recipientTypes: ['creator', 'assignee'] as string[],
     recipientUsers: [] as string[],
     recipientRoles: [] as string[],
     recipientDepts: [] as string[],
     messageTemplate: '您好 {recipient_name}！\n\n工单通知：{title}\n工单编号：{serial_number}\n优先级：{priority_text}\n状态：{status}\n\n详情请查看系统。\n\n通知时间：{notification_time}\n平台：{platform_name}',
-    subjectTemplate: '',
+    subjectTemplate: '【CacOps】{event_type} - {title}',
     scheduledTime: undefined as any,
     repeatInterval: undefined as number | undefined,
     maxRetries: 3,
@@ -1228,8 +1312,9 @@ const notificationRules = {
   recipientRoles: [
     {
       validator: (_rule: any, value: string[], callback: Function) => {
-        if (notificationDialog.form.recipientTypes.includes('role') && (!value || value.length === 0 || value.some(v => !v || !v.trim()))) {
-          callback(new Error('选择了角色类型接收人时，请至少输入一个有效的角色ID'));
+        if (notificationDialog.form.recipientTypes.includes('role') && (!value || value.length === 0 || value.some(v => !v || !String(v).trim()))) {
+          callback(new Error('选择了角色类型接收人时，请至少选择一个角色'));
+          return;
         }
         callback();
       },
@@ -1239,8 +1324,9 @@ const notificationRules = {
   recipientDepts: [
     {
       validator: (_rule: any, value: string[], callback: Function) => {
-        if (notificationDialog.form.recipientTypes.includes('dept') && (!value || value.length === 0 || value.some(v => !v || !v.trim()))) {
-          callback(new Error('选择了部门类型接收人时，请至少输入一个有效的部门ID'));
+        if (notificationDialog.form.recipientTypes.includes('dept') && (!value || value.length === 0 || value.some(v => !v || !String(v).trim()))) {
+          callback(new Error('选择了部门类型接收人时，请至少选择一个部门'));
+          return;
         }
         callback();
       },
@@ -1280,15 +1366,6 @@ const manualSendRules = {
           const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
           if (!emailRegex.test(value.trim())) {
             callback(new Error('选择了邮件渠道时，请输入有效的邮箱地址'));
-            return;
-          }
-        }
-        
-        // 检查是否包含短信渠道，如果有则验证手机号格式
-        if (manualSendDialog.form.channels.includes('sms')) {
-          const phoneRegex = /^1[3-9]\d{9}$/;
-          if (!phoneRegex.test(value.trim())) {
-            callback(new Error('选择了短信渠道时，请输入有效的手机号码'));
             return;
           }
         }
@@ -1364,6 +1441,7 @@ const getChannelColor = (channel: string): string => {
   const colorMap: Record<string, string> = {
     [NotificationChannel.FEISHU]: 'green',
     [NotificationChannel.EMAIL]: 'blue',
+    [NotificationChannel.INBOX]: 'cyan',
     [NotificationChannel.SMS]: 'orange',
     [NotificationChannel.WEBHOOK]: 'purple'
   };
@@ -1397,6 +1475,7 @@ const getChannelIcon = (channel: string) => {
   const iconMap: Record<string, any> = {
     [NotificationChannel.FEISHU]: MessageOutlined,
     [NotificationChannel.EMAIL]: MailOutlined,
+    [NotificationChannel.INBOX]: BellOutlined,
     [NotificationChannel.SMS]: PhoneOutlined,
     [NotificationChannel.WEBHOOK]: SendOutlined
   };
@@ -1407,6 +1486,7 @@ const getChannelIconColor = (channel: string): string => {
   const colorMap: Record<string, string> = {
     [NotificationChannel.FEISHU]: '#00b96b',
     [NotificationChannel.EMAIL]: '#1890ff',
+    [NotificationChannel.INBOX]: '#13c2c2',
     [NotificationChannel.SMS]: '#fa8c16',
     [NotificationChannel.WEBHOOK]: '#722ed1'
   };
@@ -1467,6 +1547,14 @@ const getFormName = (templateId?: number): string => {
 // 实现 getAvailableChannels 函数
 const getAvailableChannels = (): string[] => {
   return getAllNotificationChannels();
+};
+
+const ensureInboxChannels = (channels: string[] = []): string[] => {
+  const next = channels.filter(Boolean);
+  if (!next.includes(NotificationChannel.INBOX)) {
+    return [NotificationChannel.INBOX, ...next];
+  }
+  return next;
 };
 
 // 联动数据加载函数
@@ -1802,16 +1890,16 @@ const handleCreateNotification = (): void => {
     processId: undefined,
     templateId: undefined,
     categoryId: undefined,
-    eventTypes: ['instance_created', 'instance_submitted'],
+    eventTypes: ['instance_created', 'instance_submitted', 'instance_assigned', 'instance_approved', 'instance_rejected', 'instance_completed', 'instance_returned', 'instance_commented'],
     triggerType: NotificationTrigger.IMMEDIATE as string,
     triggerCondition: '',
-    channels: [],
-    recipientTypes: ['creator'],
+    channels: [NotificationChannel.INBOX],
+    recipientTypes: ['creator', 'assignee'],
     recipientUsers: [],
     recipientRoles: [],
     recipientDepts: [],
     messageTemplate: '您好 {recipient_name}！\n\n工单通知：{title}\n工单编号：{serial_number}\n优先级：{priority_text}\n状态：{status}\n\n详情请查看系统。\n\n通知时间：{notification_time}\n平台：{platform_name}',
-    subjectTemplate: '',
+    subjectTemplate: '【CacOps】{event_type} - {title}',
     scheduledTime: undefined,
     repeatInterval: undefined,
     maxRetries: 3,
@@ -1822,6 +1910,8 @@ const handleCreateNotification = (): void => {
   };
   
   notificationDialogVisible.value = true;
+  void loadRoles();
+  void loadDepartments();
 };
 
 const handleEditNotification = (record: Notification): void => {
@@ -1837,7 +1927,7 @@ const handleEditNotification = (record: Notification): void => {
     eventTypes: record.event_types || [],
     triggerType: record.trigger_type,
     triggerCondition: record.trigger_condition ? JSON.stringify(record.trigger_condition) : '',
-    channels: record.channels || [],
+    channels: ensureInboxChannels(record.channels || []),
     recipientTypes: record.recipient_types || [],
     recipientUsers: record.recipient_users || [],
     recipientRoles: record.recipient_roles || [],
@@ -1856,6 +1946,8 @@ const handleEditNotification = (record: Notification): void => {
   // 关闭详情对话框并显示编辑对话框
   detailDialogVisible.value = false;
   notificationDialogVisible.value = true;
+  void loadRoles();
+  void loadDepartments();
 };
 
 const handleViewNotification = async (record: Notification): Promise<void> => {
@@ -1984,7 +2076,7 @@ const handleManualSend = (record: Notification): void => {
   manualSendDialog.form = {
     channels: record.channels || [],
     recipient: '',
-    subject: `AI-CloudOps 工单通知 - {title}`,
+    subject: `CacOps 工单通知 - {title}`,
     content: getPreviewMessage(record)
   };
   
@@ -2132,13 +2224,13 @@ const saveNotification = async (): Promise<void> => {
     return;
   }
   
-  if (formData.recipientTypes.includes('role') && (!formData.recipientRoles || formData.recipientRoles.length === 0 || formData.recipientRoles.some(r => !r || !r.trim()))) {
-    message.error('选择了角色类型接收人时，必须配置有效的角色ID');
+  if (formData.recipientTypes.includes('role') && (!formData.recipientRoles || formData.recipientRoles.length === 0 || formData.recipientRoles.some(r => !r || !String(r).trim()))) {
+    message.error('选择了角色类型接收人时，必须配置有效的角色');
     return;
   }
   
-  if (formData.recipientTypes.includes('dept') && (!formData.recipientDepts || formData.recipientDepts.length === 0 || formData.recipientDepts.some(d => !d || !d.trim()))) {
-    message.error('选择了部门类型接收人时，必须配置有效的部门ID');
+  if (formData.recipientTypes.includes('dept') && (!formData.recipientDepts || formData.recipientDepts.length === 0 || formData.recipientDepts.some(d => !d || !String(d).trim()))) {
+    message.error('选择了部门类型接收人时，必须配置有效的部门');
     return;
   }
   
@@ -2169,9 +2261,9 @@ const saveNotification = async (): Promise<void> => {
     }
     
     // 清理空的接收人数据
-    const cleanRecipientUsers = formData.recipientUsers?.filter(u => u && u.trim()) || [];
-    const cleanRecipientRoles = formData.recipientRoles?.filter(r => r && r.trim()) || [];
-    const cleanRecipientDepts = formData.recipientDepts?.filter(d => d && d.trim()) || [];
+    const cleanRecipientUsers = formData.recipientUsers?.map(u => String(u).trim()).filter(Boolean) || [];
+    const cleanRecipientRoles = formData.recipientRoles?.map(r => String(r).trim()).filter(Boolean) || [];
+    const cleanRecipientDepts = formData.recipientDepts?.map(d => String(d).trim()).filter(Boolean) || [];
 
     if (notificationDialog.isEdit) {
       // 更新通知配置
@@ -2190,7 +2282,7 @@ const saveNotification = async (): Promise<void> => {
         event_types: formData.eventTypes,
         trigger_type: formData.triggerType,
         trigger_condition: triggerCondition,
-        channels: formData.channels,
+        channels: ensureInboxChannels(formData.channels),
         recipient_types: formData.recipientTypes,
         recipient_users: cleanRecipientUsers,
         recipient_roles: cleanRecipientRoles,
@@ -2219,7 +2311,7 @@ const saveNotification = async (): Promise<void> => {
         event_types: formData.eventTypes,
         trigger_type: formData.triggerType,
         trigger_condition: triggerCondition,
-        channels: formData.channels,
+        channels: ensureInboxChannels(formData.channels),
         recipient_types: formData.recipientTypes,
         recipient_users: cleanRecipientUsers,
         recipient_roles: cleanRecipientRoles,

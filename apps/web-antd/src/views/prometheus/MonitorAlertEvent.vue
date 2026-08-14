@@ -123,6 +123,26 @@
 
             <template v-if="column.key === 'action'">
               <div class="action-buttons">
+                <a-tooltip :title="canJumpAiops(record) ? '自动修复' : '缺少 namespace/deployment 标签'">
+                  <a-button
+                    type="primary"
+                    ghost
+                    size="small"
+                    :disabled="!canJumpAiops(record)"
+                    @click="goAutoFix(record)"
+                  >
+                    修复
+                  </a-button>
+                </a-tooltip>
+                <a-tooltip :title="parseAlertLabels(record).namespace ? '根因分析' : '缺少 namespace 标签'">
+                  <a-button
+                    size="small"
+                    :disabled="!parseAlertLabels(record).namespace"
+                    @click="goRca(record)"
+                  >
+                    RCA
+                  </a-button>
+                </a-tooltip>
                 <a-tooltip title="屏蔽告警">
                   <a-button type="primary" size="small" @click="handleSilence(record)">
                     <template #icon>
@@ -209,6 +229,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import { message, Modal } from 'ant-design-vue';
 import { DownOutlined } from '@ant-design/icons-vue';
 import { Icon } from '@iconify/vue';
@@ -225,6 +246,68 @@ import {
   type EventAlertUnSilenceReq,
   MonitorAlertEventStatus,
 } from '#/api/core/prometheus/prometheus_alert_event';
+
+const router = useRouter();
+
+function parseAlertLabels(record: MonitorAlertEvent): {
+  namespace?: string;
+  deployment?: string;
+  summary?: string;
+} {
+  const map: Record<string, string> = {};
+  for (const raw of record.labels || []) {
+    const text = String(raw);
+    const idx = text.indexOf('=') >= 0 ? text.indexOf('=') : text.indexOf(':');
+    if (idx > 0) {
+      map[text.slice(0, idx).trim()] = text.slice(idx + 1).trim();
+    }
+  }
+  const namespace = map.namespace || map.ns;
+  const deployment =
+    map.deployment || map.workload || map.Deployment || map.job || map.pod;
+  const summary =
+    map.summary || map.alertname || record.alert_name || undefined;
+  return { namespace, deployment, summary };
+}
+
+function canJumpAiops(record: MonitorAlertEvent): boolean {
+  const parsed = parseAlertLabels(record);
+  return Boolean(parsed.namespace && parsed.deployment);
+}
+
+function goAutoFix(record: MonitorAlertEvent) {
+  const parsed = parseAlertLabels(record);
+  if (!parsed.namespace || !parsed.deployment) {
+    message.warning('告警缺少 namespace 或 deployment 标签，无法跳转自动修复');
+    return;
+  }
+  router.push({
+    path: '/autofix/workflow',
+    query: {
+      namespace: parsed.namespace,
+      deployment: parsed.deployment,
+      summary: parsed.summary || record.alert_name || '',
+      alertFingerprint: String(record.id || ''),
+    },
+  });
+}
+
+function goRca(record: MonitorAlertEvent) {
+  const parsed = parseAlertLabels(record);
+  if (!parsed.namespace) {
+    message.warning('告警缺少 namespace 标签，无法跳转根因分析');
+    return;
+  }
+  router.push({
+    path: '/rca/analysis',
+    query: {
+      namespace: parsed.namespace,
+      deployment: parsed.deployment || '',
+      summary: parsed.summary || record.alert_name || '',
+      alertFingerprint: String(record.id || ''),
+    },
+  });
+}
 
 // 响应式对话框宽度
 const previewDialogWidth = computed(() => {
@@ -250,7 +333,7 @@ const columns = [
   { title: '发送组', dataIndex: 'send_group_id', key: 'send_group_name', width: 120 },
   { title: '规则名称', dataIndex: 'alert_rule_name', key: 'alert_rule_name', width: 150 },
   { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 180 },
-  { title: '操作', key: 'action', width: 200, align: 'center' as const, fixed: 'right' }
+  { title: '操作', key: 'action', width: 380, align: 'center' as const, fixed: 'right' }
 ];
 
 // 状态数据

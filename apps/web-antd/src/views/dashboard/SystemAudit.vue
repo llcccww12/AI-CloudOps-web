@@ -374,6 +374,7 @@ import {
   getAuditTypesApi,
   deleteAuditLogApi,
   batchDeleteLogsApi,
+  exportAuditLogsApi,
   type AuditLog,
   type AuditStatistics,
   type AuditTypeInfo,
@@ -743,8 +744,42 @@ const handleRefresh = () => {
   fetchAuditStatistics();
 };
 
-const handleExport = () => {
-  message.info('导出功能开发中...');
+const handleExport = async () => {
+  try {
+    message.loading({ content: '正在导出...', key: 'audit-export', duration: 0 });
+    const blob = (await exportAuditLogsApi({
+      search: searchParams.search || undefined,
+      operation_type: searchParams.operation_type,
+      target_type: searchParams.target_type,
+      status_code: searchParams.status_code,
+      start_time: startTime.value ? startTime.value.valueOf() : undefined,
+      end_time: endTime.value ? endTime.value.valueOf() : undefined,
+      limit: 5000,
+    })) as Blob;
+
+    // 接口失败时可能仍返回 JSON blob，避免保存成假 CSV
+    const text = await blob.text();
+    if (text.startsWith('{') || text.trimStart().startsWith('{')) {
+      try {
+        const err = JSON.parse(text);
+        throw new Error(err.message || '导出失败');
+      } catch (e: any) {
+        if (e?.message && e.message !== '导出失败') throw e;
+        throw new Error('导出失败');
+      }
+    }
+
+    const csvBlob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(csvBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `audit_logs_${dayjs().format('YYYYMMDD_HHmmss')}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    message.success({ content: '导出成功', key: 'audit-export' });
+  } catch (error: any) {
+    message.error({ content: error.message || '导出失败', key: 'audit-export' });
+  }
 };
 
 const handleAdvancedSearch = () => {

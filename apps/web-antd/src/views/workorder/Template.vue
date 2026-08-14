@@ -147,7 +147,10 @@
 
             <template v-if="column.key === 'action'">
               <div class="action-buttons">
-                <a-button type="primary" size="small" @click="handleViewTemplate(record)">
+                <a-button type="primary" size="small" @click="handleCreateWorkorder(record)">
+                  创建工单
+                </a-button>
+                <a-button type="default" size="small" @click="handleViewTemplate(record)">
                   查看
                 </a-button>
                 <a-button type="default" size="small" @click="handleEditTemplate(record)">
@@ -443,6 +446,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, onBeforeUnmount, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import { message, Modal } from 'ant-design-vue';
 import {
   PlusOutlined,
@@ -483,6 +487,7 @@ import {
   listWorkorderFormDesign
 } from '#/api/core/workorder/workorder_form_design';
 
+const router = useRouter();
 // 列定义 - 修复嵌套数据显示问题
 const columns = [
   {
@@ -1145,6 +1150,16 @@ const handleCreateTemplate = () => {
   };
   templateDialog.visible = true;
   resetSelectors();
+};
+
+const handleCreateWorkorder = (row: WorkorderTemplateItem) => {
+  if (!row.id) {
+    return;
+  }
+  router.push({
+    path: '/workorder/center',
+    query: { template_id: String(row.id) },
+  });
 };
 
 const handleEditTemplate = async (row: WorkorderTemplateItem) => {

@@ -15,14 +15,20 @@
         <div class="header-actions">
           <a-button type="primary" @click="refreshKnowledge" :loading="refreshing">
             <template #icon><ReloadOutlined /></template>
-            刷新知识库
+            同步索引到 AI
           </a-button>
         </div>
       </div>
     </div>
 
     <div class="knowledge-content">
-      <!-- 统计卡片 -->
+      <a-alert
+        class="index-hint-alert"
+        type="info"
+        show-icon
+        message="两层存储说明"
+        description="文档先保存在磁盘知识库目录（可长期查看/编辑）；「同步索引到 AI」会把磁盘文档重建进向量库，RAG 回答才会用到最新内容。「需同步」表示磁盘已有文件，但向量库还没跟上。"
+      />
       <div class="stats-grid">
         <a-card class="stat-card">
           <a-statistic
@@ -59,13 +65,28 @@
           <!-- 文件上传 -->
           <a-col :span="12">
             <a-card title="文档上传" class="function-card">
+              <a-form layout="vertical" class="upload-meta-form">
+                <a-form-item label="文档标题">
+                  <a-input
+                    v-model:value="uploadMeta.title"
+                    placeholder="例如：智算中心运营管理平台需求书"
+                  />
+                </a-form-item>
+                <a-form-item label="何时查阅（给 AI 的备注）">
+                  <a-textarea
+                    v-model:value="uploadMeta.use_when"
+                    :rows="2"
+                    placeholder="例如：用户问到平台功能、需求范围、模块划分时优先查阅"
+                  />
+                </a-form-item>
+              </a-form>
               <div class="upload-area">
                 <a-upload-dragger
                   v-model:fileList="fileList"
                   :before-upload="beforeUpload"
                   :custom-request="handleUpload"
                   :multiple="true"
-                  accept=".txt,.md,.pdf,.doc,.docx"
+                  accept=".txt,.md,.pdf,.docx"
                   class="upload-dragger"
                 >
                   <p class="ant-upload-drag-icon">
@@ -73,7 +94,7 @@
                   </p>
                   <p class="ant-upload-text">点击或拖拽文件到此区域上传</p>
                   <p class="ant-upload-hint">
-                    支持 .txt, .md, .pdf, .doc, .docx 格式文件
+                    支持 .txt / .md / .pdf / .docx；会保存到知识库目录并写入向量索引
                   </p>
                 </a-upload-dragger>
               </div>
@@ -93,7 +114,14 @@
                 <a-form-item label="文件名" name="file_name">
                   <a-input 
                     v-model:value="documentForm.file_name" 
-                    placeholder="例如: document.txt"
+                    placeholder="例如: document.md"
+                  />
+                </a-form-item>
+                <a-form-item label="何时查阅（给 AI 的备注）" name="use_when">
+                  <a-textarea
+                    v-model:value="documentForm.use_when"
+                    :rows="2"
+                    placeholder="例如：排查镜像拉取失败、ImagePullBackOff 时查阅"
                   />
                 </a-form-item>
                 <a-form-item label="文档内容" name="content">
@@ -118,6 +146,113 @@
           </a-col>
         </a-row>
       </div>
+
+      <a-card title="已保存文档目录" class="document-list-card">
+        <template #extra>
+          <a-space>
+            <a-button size="small" @click="loadDocuments" :loading="documentsLoading">刷新列表</a-button>
+            <a-button size="small" type="primary" ghost @click="refreshKnowledge" :loading="refreshing">
+              同步索引到 AI
+            </a-button>
+          </a-space>
+        </template>
+        <a-table
+          :columns="documentColumns"
+          :data-source="documents"
+          :loading="documentsLoading"
+          :pagination="{ pageSize: 8 }"
+          row-key="document_id"
+          size="small"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'source'">
+              <a-tag :color="record.source === 'builtin' ? 'blue' : 'default'">
+                {{ record.source === 'builtin' ? '内置' : '用户' }}
+              </a-tag>
+            </template>
+            <template v-else-if="column.key === 'indexed'">
+              <a-tooltip
+                :title="record.indexed
+                  ? '已写入向量库，RAG 可检索'
+                  : '仅磁盘保存；点「同步索引到 AI」后才会被 RAG 使用最新内容'"
+              >
+                <a-tag :color="record.indexed ? 'green' : 'orange'">
+                  {{ record.indexed ? 'AI 可检索' : '需同步' }}
+                </a-tag>
+              </a-tooltip>
+            </template>
+            <template v-else-if="column.key === 'use_when'">
+              <span>{{ record.use_when || '未标注适用场景' }}</span>
+            </template>
+            <template v-else-if="column.key === 'actions'">
+              <a-space>
+                <a-button type="link" size="small" @click="openView(record)">查看</a-button>
+                <a-button type="link" size="small" @click="openEdit(record)">编辑</a-button>
+                <a-popconfirm
+                  title="确认删除该文档？删除后建议再点「同步索引到 AI」清理旧向量。"
+                  ok-text="删除"
+                  cancel-text="取消"
+                  @confirm="handleDelete(record)"
+                >
+                  <a-button type="link" size="small" danger :loading="deletingKey === docKey(record)">
+                    删除
+                  </a-button>
+                </a-popconfirm>
+              </a-space>
+            </template>
+          </template>
+        </a-table>
+        <div class="document-list-hint">
+          「内置」文档是仓库自带的运维手册（平台总览、部署指南、故障诊断等），和用户上传的文件在同一知识库目录，都会参与 RAG。
+          「需同步」≠ 文件丢失，只表示向量索引还没跟上磁盘最新内容。
+        </div>
+      </a-card>
+
+      <a-drawer
+        v-model:open="viewOpen"
+        title="查看文档"
+        width="720"
+        :destroy-on-close="true"
+      >
+        <a-spin :spinning="detailLoading">
+          <a-descriptions bordered :column="1" size="small">
+            <a-descriptions-item label="标题">{{ viewDetail.title || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="文件名">{{ viewDetail.filename || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="何时查阅">{{ viewDetail.use_when || '未标注' }}</a-descriptions-item>
+            <a-descriptions-item label="索引状态">
+              {{ viewDetail.indexed ? 'AI 可检索' : '需同步' }}
+            </a-descriptions-item>
+          </a-descriptions>
+          <div class="doc-content-preview">
+            <pre>{{ viewDetail.content || '（无正文）' }}</pre>
+          </div>
+        </a-spin>
+      </a-drawer>
+
+      <a-modal
+        v-model:open="editOpen"
+        title="编辑文档"
+        ok-text="保存"
+        :confirm-loading="editSaving"
+        :destroy-on-close="true"
+        width="720"
+        @ok="saveEdit"
+      >
+        <a-form layout="vertical">
+          <a-form-item label="文档标题">
+            <a-input v-model:value="editForm.title" />
+          </a-form-item>
+          <a-form-item label="文件名">
+            <a-input :value="editForm.filename" disabled />
+          </a-form-item>
+          <a-form-item label="何时查阅（给 AI 的备注）">
+            <a-textarea v-model:value="editForm.use_when" :rows="2" />
+          </a-form-item>
+          <a-form-item label="文档内容">
+            <a-textarea v-model:value="editForm.content" :rows="12" />
+          </a-form-item>
+        </a-form>
+      </a-modal>
 
       <!-- 操作日志 -->
       <a-card title="操作日志" class="log-card">
@@ -166,16 +301,33 @@ import {
   refreshKnowledgeBase, 
   uploadKnowledgeFile, 
   addDocument as addDocumentAPI,
+  listKnowledgeDocuments,
+  getKnowledgeDocument,
+  updateKnowledgeDocument,
+  deleteKnowledgeDocument,
   type AddDocumentRequest,
   type RefreshKnowledgeResponse,
   type UploadKnowledgeResponse,
-  type AddDocumentResponse
+  type AddDocumentResponse,
+  type KnowledgeDocumentItem,
 } from '#/api/core/aiops/assistant';
 
 // 响应式数据
 const refreshing = ref(false);
 const adding = ref(false);
+const documentsLoading = ref(false);
+const detailLoading = ref(false);
+const editSaving = ref(false);
+const deletingKey = ref('');
 const fileList = ref<any[]>([]);
+const documents = ref<KnowledgeDocumentItem[]>([]);
+const viewOpen = ref(false);
+const editOpen = ref(false);
+
+const uploadMeta = reactive({
+  title: '',
+  use_when: '',
+});
 
 // 知识库统计
 const knowledgeStats = reactive({
@@ -188,8 +340,38 @@ const knowledgeStats = reactive({
 const documentForm = reactive<AddDocumentRequest>({
   title: '',
   content: '',
-  file_name: ''
+  file_name: '',
+  use_when: '',
 });
+
+const viewDetail = reactive({
+  title: '',
+  filename: '',
+  use_when: '',
+  content: '',
+  indexed: false,
+});
+
+const editForm = reactive({
+  key: '',
+  title: '',
+  filename: '',
+  use_when: '',
+  content: '',
+});
+
+const documentColumns = [
+  { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
+  { title: '来源', key: 'source', width: 90 },
+  { title: '文件名', dataIndex: 'filename', key: 'filename', width: 180, ellipsis: true },
+  { title: '何时查阅', dataIndex: 'use_when', key: 'use_when', ellipsis: true },
+  { title: 'AI 索引', key: 'indexed', width: 100 },
+  { title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 170 },
+  { title: '操作', key: 'actions', width: 180, fixed: 'right' },
+];
+
+const docKey = (record: KnowledgeDocumentItem) =>
+  record.filename || record.document_id;
 
 // 操作日志
 interface OperationLog {
@@ -213,6 +395,111 @@ const addLog = (type: OperationLog['type'], message: string) => {
   }
 };
 
+// 加载文档目录与统计
+const loadDocuments = async () => {
+  try {
+    documentsLoading.value = true;
+    const response = (await listKnowledgeDocuments()) as any;
+    documents.value = response?.documents || [];
+    knowledgeStats.documents_count = response?.documents_count ?? documents.value.length;
+    knowledgeStats.vector_count = response?.vector_count ?? 0;
+    knowledgeStats.last_update = response?.timestamp
+      ? new Date(response.timestamp).toLocaleString()
+      : knowledgeStats.last_update;
+  } catch (error: any) {
+    addLog('error', `加载文档目录失败: ${error.message}`);
+  } finally {
+    documentsLoading.value = false;
+  }
+};
+
+const openView = async (record: KnowledgeDocumentItem) => {
+  viewOpen.value = true;
+  detailLoading.value = true;
+  viewDetail.title = record.title || '';
+  viewDetail.filename = record.filename || '';
+  viewDetail.use_when = record.use_when || '';
+  viewDetail.content = '';
+  viewDetail.indexed = !!record.indexed;
+  try {
+    const detail = (await getKnowledgeDocument(docKey(record))) as any;
+    viewDetail.title = detail?.title || viewDetail.title;
+    viewDetail.filename = detail?.filename || viewDetail.filename;
+    viewDetail.use_when = detail?.use_when || '';
+    viewDetail.content = detail?.content || '';
+    viewDetail.indexed = !!detail?.indexed;
+  } catch (error: any) {
+    message.error(`加载文档失败: ${error.message}`);
+    addLog('error', `查看文档失败: ${error.message}`);
+  } finally {
+    detailLoading.value = false;
+  }
+};
+
+const openEdit = async (record: KnowledgeDocumentItem) => {
+  editOpen.value = true;
+  editSaving.value = false;
+  editForm.key = docKey(record);
+  editForm.title = record.title || '';
+  editForm.filename = record.filename || '';
+  editForm.use_when = record.use_when || '';
+  editForm.content = '';
+  try {
+    const detail = (await getKnowledgeDocument(docKey(record))) as any;
+    editForm.title = detail?.title || editForm.title;
+    editForm.filename = detail?.filename || editForm.filename;
+    editForm.use_when = detail?.use_when || '';
+    editForm.content = detail?.content || '';
+  } catch (error: any) {
+    message.error(`加载文档失败: ${error.message}`);
+    editOpen.value = false;
+  }
+};
+
+const saveEdit = async () => {
+  if (!editForm.title.trim()) {
+    message.warning('请输入文档标题');
+    return;
+  }
+  if (!editForm.content.trim()) {
+    message.warning('请输入文档内容');
+    return;
+  }
+  try {
+    editSaving.value = true;
+    const result = (await updateKnowledgeDocument(editForm.key, {
+      title: editForm.title,
+      use_when: editForm.use_when,
+      content: editForm.content,
+    })) as any;
+    message.success(result?.message || '文档已更新');
+    addLog('success', `文档已更新: ${editForm.filename}`);
+    editOpen.value = false;
+    await loadDocuments();
+  } catch (error: any) {
+    message.error(`保存失败: ${error.message}`);
+    addLog('error', `编辑文档失败: ${error.message}`);
+  } finally {
+    editSaving.value = false;
+  }
+};
+
+const handleDelete = async (record: KnowledgeDocumentItem) => {
+  const key = docKey(record);
+  try {
+    deletingKey.value = key;
+    const result = (await deleteKnowledgeDocument(key)) as any;
+    message.success(result?.message || '文档已删除');
+    addLog('success', `文档已删除: ${record.filename}`);
+    await loadDocuments();
+  } catch (error: any) {
+    message.error(`删除失败: ${error.message}`);
+    addLog('error', `删除文档失败: ${error.message}`);
+  } finally {
+    deletingKey.value = '';
+  }
+};
+
 // 刷新知识库
 const refreshKnowledge = async () => {
   try {
@@ -221,19 +508,21 @@ const refreshKnowledge = async () => {
     const data = response as RefreshKnowledgeResponse;
     
     if (data.refreshed) {
-      knowledgeStats.documents_count = data.documents_count;
-      knowledgeStats.vector_count = data.vector_count;
+      knowledgeStats.documents_count = data.documents_count || 0;
+      knowledgeStats.vector_count = data.vector_count || 0;
       knowledgeStats.last_update = new Date(data.timestamp).toLocaleString();
       
-      message.success('知识库刷新成功');
-      addLog('success', `知识库刷新成功：${data.message}`);
+      message.success('已同步索引到 AI');
+      addLog('success', `同步索引成功：${data.message}`);
+      await loadDocuments();
     } else {
-      message.error('知识库刷新失败');
-      addLog('error', '知识库刷新失败');
+      message.error(data.message || '同步索引失败');
+      addLog('error', data.message || '同步索引失败');
+      await loadDocuments();
     }
   } catch (error: any) {
-    message.error(`刷新知识库失败: ${error.message}`);
-    addLog('error', `刷新知识库失败: ${error.message}`);
+    message.error(`同步索引失败: ${error.message}`);
+    addLog('error', `同步索引失败: ${error.message}`);
   } finally {
     refreshing.value = false;
   }
@@ -241,11 +530,11 @@ const refreshKnowledge = async () => {
 
 // 文件上传前处理
 const beforeUpload = (file: File) => {
-  const isValidType = ['txt', 'md', 'pdf', 'doc', 'docx'].some(ext => 
+  const isValidType = ['txt', 'md', 'pdf', 'docx'].some(ext => 
     file.name.toLowerCase().endsWith(`.${ext}`)
   );
   if (!isValidType) {
-    message.error('只能上传 txt, md, pdf, doc, docx 格式的文件');
+    message.error('只能上传 txt / md / pdf / docx；旧版 .doc 请先另存为 .docx');
     return false;
   }
   
@@ -260,25 +549,29 @@ const beforeUpload = (file: File) => {
 
 // 处理文件上传
 const handleUpload = async (options: any) => {
-  const { file } = options;
+  const { file, onSuccess, onError } = options;
   
   try {
-    const response = await uploadKnowledgeFile(file);
+    const response = await uploadKnowledgeFile(file, {
+      title: uploadMeta.title || undefined,
+      use_when: uploadMeta.use_when || undefined,
+    });
     const data = response as UploadKnowledgeResponse;
     
     if (data.uploaded) {
       message.success(`文件 ${data.filename} 上传成功`);
       addLog('success', `文件上传成功: ${data.filename} (${data.file_size} 字节)`);
-      
-      // 上传成功后刷新知识库统计
-      await refreshKnowledge();
+      onSuccess?.(data);
+      await loadDocuments();
     } else {
       message.error(`文件上传失败: ${data.message}`);
       addLog('error', `文件上传失败: ${data.message}`);
+      onError?.(new Error(data.message));
     }
   } catch (error: any) {
     message.error(`文件上传失败: ${error.message}`);
     addLog('error', `文件上传失败: ${error.message}`);
+    onError?.(error);
   }
 };
 
@@ -306,13 +599,11 @@ const addDocument = async () => {
       message.success('文档添加成功');
       addLog('success', `文档添加成功: ${documentForm.title} (ID: ${data.document_id})`);
       
-      // 清空表单
       documentForm.title = '';
       documentForm.content = '';
       documentForm.file_name = '';
-      
-      // 刷新知识库统计
-      await refreshKnowledge();
+      documentForm.use_when = '';
+      await loadDocuments();
     } else {
       message.error(`文档添加失败: ${data.message}`);
       addLog('error', `文档添加失败: ${data.message}`);
@@ -327,7 +618,7 @@ const addDocument = async () => {
 
 // 页面初始化
 onMounted(() => {
-  refreshKnowledge();
+  void loadDocuments();
   addLog('info', '知识库管理页面已加载');
 });
 </script>
@@ -394,6 +685,10 @@ onMounted(() => {
 }
 
 .knowledge-content {
+  .index-hint-alert {
+    margin-bottom: 16px;
+  }
+
   .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -403,14 +698,42 @@ onMounted(() => {
     .stat-card {
       text-align: center;
       border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-      margin-bottom: 24px;
-      transition: all 0.3s ease;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+  }
 
-      &:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-      }
+  .upload-meta-form {
+    margin-bottom: 12px;
+  }
+
+  .document-list-card {
+    margin-bottom: 24px;
+    border-radius: 8px;
+  }
+
+  .document-list-hint {
+    margin-top: 12px;
+    color: #8c8c8c;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  .doc-content-preview {
+    margin-top: 16px;
+    max-height: 60vh;
+    overflow: auto;
+    padding: 12px;
+    background: #fafafa;
+    border: 1px solid #f0f0f0;
+    border-radius: 6px;
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.6;
     }
   }
 

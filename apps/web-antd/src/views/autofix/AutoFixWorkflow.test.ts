@@ -1,4 +1,4 @@
-import { defineComponent } from 'vue';
+import { computed, defineComponent, ref } from 'vue';
 
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,6 +10,14 @@ const autofixMocks = vi.hoisted(() => ({
   executeAutoFixWorkflow: vi.fn(),
   getAutoFixInfo: vi.fn(),
   getAutoFixReady: vi.fn(),
+}));
+
+const clusterMocks = vi.hoisted(() => ({
+  getSelectedKubeConfig: vi.fn(),
+}));
+
+const deploymentMocks = vi.hoisted(() => ({
+  getDeploymentListApi: vi.fn(),
 }));
 
 const messageMocks = vi.hoisted(() => ({
@@ -25,12 +33,42 @@ vi.mock('#/api/core/aiops/autofix', () => ({
   getAutoFixReady: autofixMocks.getAutoFixReady,
 }));
 
+vi.mock('#/api/core/k8s/k8s_deployment', () => ({
+  getDeploymentListApi: deploymentMocks.getDeploymentListApi,
+}));
+
+vi.mock('../rca/useRcaClusterNamespace', () => ({
+  useRcaClusterNamespace: () => {
+    const clusterId = ref(1);
+    const namespace = ref('default');
+    return {
+      clusterId,
+      clusters: ref([{ api_server_addr: 'https://192.168.239.201:6443', id: 1, name: 'k3s-remote' }]),
+      clustersLoading: ref(false),
+      fetchClusters: vi.fn(),
+      getSelectedKubeConfig: clusterMocks.getSelectedKubeConfig,
+      namespace,
+      namespaces: ref([{ name: 'default' }, { name: 'kube-system' }]),
+      namespacesLoading: ref(false),
+      preferredNamespace: ref<string | undefined>(undefined),
+      preferredClusterId: ref<number | undefined>(undefined),
+      selectedCluster: computed(() => ({ id: 1, name: 'k3s-remote' })),
+    };
+  },
+}));
+
 vi.mock('ant-design-vue', () => ({
   message: {
     error: messageMocks.error,
     success: messageMocks.success,
     warning: messageMocks.warning,
   },
+}));
+
+vi.mock('vue-router', () => ({
+  useRoute: () => ({
+    query: {},
+  }),
 }));
 
 vi.mock('@iconify/vue', () => ({
@@ -196,6 +234,10 @@ function createWrapper() {
 describe('AutoFixWorkflow.vue', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clusterMocks.getSelectedKubeConfig.mockResolvedValue('apiVersion: v1\nkind: Config\n');
+    deploymentMocks.getDeploymentListApi.mockResolvedValue({
+      items: [{ name: 'payment-service' }, { name: 'api-gateway' }],
+    });
     autofixMocks.getAutoFixInfo.mockResolvedValue({
       capabilities: ['诊断转换', '风险评估'],
       description: '自动修复服务',
@@ -318,6 +360,7 @@ describe('AutoFixWorkflow.vue', () => {
       deployment: 'payment-service',
       event:
         'ImagePullBackOff: failed to pull image，可能和镜像地址、Secret或网络连通性有关。',
+      kube_config: 'apiVersion: v1\nkind: Config\n',
       namespace: 'default',
       problem_description:
         'Deployment 镜像拉取失败，请检查镜像地址、镜像拉取密钥和网络连通性，并给出可控修复动作。',

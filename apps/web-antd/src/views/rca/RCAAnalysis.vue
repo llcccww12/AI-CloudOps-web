@@ -30,6 +30,21 @@
       <!-- 左侧配置面板 -->
       <a-col :xs="24" :lg="7">
         <a-card title="分析配置" class="config-card">
+          <a-alert
+            v-if="alertContext.visible"
+            class="alert-context"
+            type="info"
+            show-icon
+            :message="alertContext.summary || '来自监控告警'"
+          >
+            <template #description>
+              <div>命名空间：{{ alertContext.namespace || '-' }}</div>
+              <div v-if="alertContext.deployment">工作负载：{{ alertContext.deployment }}</div>
+              <div class="alert-context-hint">
+                {{ autoStartHint }}
+              </div>
+            </template>
+          </a-alert>
           <a-form :model="formData" layout="vertical">
             <a-form-item label="Kubernetes 集群" required>
               <a-select
@@ -503,7 +518,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, nextTick, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, nextTick, onUnmounted, watch } from 'vue';
+import { useRoute } from 'vue-router';
 // 按需引入echarts，减少打包体积
 import * as echarts from 'echarts/core';
 import { GraphChart, ScatterChart } from 'echarts/charts';
@@ -553,6 +569,8 @@ let eventsChart: echarts.ECharts | null = null;
 let clustersChart: echarts.ECharts | null = null;
 let errorLogsChart: echarts.ECharts | null = null;
 
+const route = useRoute();
+
 const {
   clusters,
   namespaces,
@@ -560,6 +578,8 @@ const {
   namespacesLoading,
   clusterId,
   namespace,
+  preferredNamespace,
+  preferredClusterId,
   selectedCluster,
   getSelectedKubeConfig,
 } = useRcaClusterNamespace();
@@ -579,6 +599,22 @@ const namespaceOptions = computed(() =>
     value: item.name,
   })),
 );
+
+const alertContext = reactive({
+  deployment: '',
+  fingerprint: '',
+  namespace: '',
+  summary: '',
+  visible: false,
+});
+const autoStarted = ref(false);
+const autoStartHint = computed(() => {
+  if (!alertContext.visible) return '';
+  if (analyzing.value) return '正在根据告警上下文自动分析该命名空间…';
+  if (analysisResult.value) return '已根据告警自动完成分析，可调整配置后再次分析。';
+  if (!clusterId.value || !namespace.value) return '等待集群与命名空间就绪后将自动开始分析。';
+  return '检测到告警跳转，将自动开始分析。';
+});
 
 // 表单数据
 const formData = reactive({
@@ -712,7 +748,7 @@ const truncateText = (text: string, maxLength: number) => {
 };
 
 // 加载可用指标
-const loadAvailableMetrics = async () => {
+const loadAvailableMetrics = async (silent = false) => {
   loadingMetrics.value = true;
   try {
     const response = await getAllPrometheusMetrics();
@@ -721,10 +757,13 @@ const loadAvailableMetrics = async () => {
       label: metric,
       value: metric
     }));
-    message.success('指标列表已更新');
+    if (!silent) {
+      message.success('指标列表已更新');
+    }
   } catch (error) {
-
-    message.error('获取指标列表失败');
+    if (!silent) {
+      message.error('获取指标列表失败');
+    }
   } finally {
     loadingMetrics.value = false;
   }
@@ -1115,9 +1154,48 @@ const handleResize = () => {
   if (errorLogsChart) errorLogsChart.resize();
 };
 
+function applyQueryPrefill() {
+  const q = route.query;
+  const ns = String(q.namespace || '').trim();
+  const deployment = String(q.deployment || q.workload || '').trim();
+  const summary = String(q.summary || q.alert || '').trim();
+  const fingerprint = String(q.alertFingerprint || '').trim();
+  const cid = Number(q.clusterId || q.cluster_id || 0);
+  if (cid) {
+    preferredClusterId.value = cid;
+  }
+  if (ns) {
+    preferredNamespace.value = ns;
+    namespace.value = ns;
+  }
+  if (ns || summary || deployment || fingerprint) {
+    alertContext.visible = true;
+    alertContext.namespace = ns;
+    alertContext.deployment = deployment;
+    alertContext.summary = summary;
+    alertContext.fingerprint = fingerprint;
+  }
+}
+
+applyQueryPrefill();
+
+watch(
+  [clusterId, namespace, clustersLoading, namespacesLoading],
+  ([id, ns, loadingClusters, loadingNamespaces]) => {
+    if (!alertContext.visible || autoStarted.value || analyzing.value) {
+      return;
+    }
+    if (loadingClusters || loadingNamespaces || !id || !ns) {
+      return;
+    }
+    autoStarted.value = true;
+    void startAnalysis();
+  },
+);
+
 // 生命周期
 onMounted(() => {
-  loadAvailableMetrics();
+  loadAvailableMetrics(true);
   window.addEventListener('resize', handleResize);
 });
 
@@ -1209,6 +1287,15 @@ align-items: center;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   border: 1px solid #f0f0f0;
   overflow: hidden;
+}
+
+.alert-context {
+  margin-bottom: 16px;
+}
+
+.alert-context-hint {
+  margin-top: 8px;
+  color: rgba(0, 0, 0, 0.45);
 }
 
 /* 加载状态样式 */

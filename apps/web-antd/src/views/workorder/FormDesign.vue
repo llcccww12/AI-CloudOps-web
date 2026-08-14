@@ -416,6 +416,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { message } from 'ant-design-vue';
 import {
   PlusOutlined,
@@ -439,10 +440,17 @@ import {
   type FormField, 
   type FormSchema,
   type CreateWorkorderFormDesignReq,
+  type UpdateWorkorderFormDesignReq,
   createWorkorderFormDesign,
+  updateWorkorderFormDesign,
+  detailWorkorderFormDesign,
 } from '#/api/core/workorder/workorder_form_design';
 import type { WorkorderCategoryItem, ListWorkorderCategoryReq } from '#/api/core/workorder/workorder_category';
 import { listWorkorderCategory } from '#/api/core/workorder/workorder_category';
+
+const route = useRoute();
+const router = useRouter();
+const editingFormId = ref<number | null>(null);
 
 // 响应式数据
 const showDesigner = ref(true);
@@ -751,7 +759,7 @@ const saveFormDesign = async () => {
   }
 
   try {
-    const data: CreateWorkorderFormDesignReq = {
+    const payload = {
       name: formMeta.name,
       description: formMeta.description,
       schema: formSchema,
@@ -761,10 +769,45 @@ const saveFormDesign = async () => {
       is_template: isTemplate.value ? 1 : 2
     };
 
-    await createWorkorderFormDesign(data);
-    message.success('表单设计保存成功');
+    if (editingFormId.value) {
+      const data: UpdateWorkorderFormDesignReq = {
+        id: editingFormId.value,
+        ...payload,
+      };
+      await updateWorkorderFormDesign(data);
+      message.success('表单设计更新成功');
+    } else {
+      const data: CreateWorkorderFormDesignReq = payload;
+      await createWorkorderFormDesign(data);
+      message.success('表单设计保存成功');
+    }
+    router.push('/workorder/forms');
   } catch (error) {
     message.error('保存失败，请重试');
+  }
+};
+
+const loadFormDesignDetail = async (id: number) => {
+  try {
+    const response = await detailWorkorderFormDesign({ id });
+    if (!response) {
+      message.error('加载表单详情失败');
+      return;
+    }
+    editingFormId.value = response.id;
+    formMeta.name = response.name || '';
+    formMeta.description = response.description || '';
+    formMeta.status = response.status || FormDesignStatus.Draft;
+    formMeta.category_id = response.category_id;
+    formMeta.tags = response.tags || [];
+    isTemplate.value = response.is_template === 1;
+    formSchema.fields = response.schema?.fields || [];
+    if (response.category) {
+      categories.value = [response.category, ...categories.value.filter(c => c.id !== response.category_id)];
+    }
+    initFormData();
+  } catch (error) {
+    message.error('加载表单详情失败');
   }
 };
 
@@ -848,8 +891,14 @@ const importConfig = (file: File) => {
 };
 
 // 组件挂载时加载数据
-onMounted(() => {
-  // 初始化时不加载分类数据，只在用户点击下拉框时加载
+onMounted(async () => {
+  await loadCategories(true);
+  const rawId = route.params.id;
+  const idStr = Array.isArray(rawId) ? rawId[0] : rawId;
+  const formId = Number(idStr);
+  if (formId > 0) {
+    await loadFormDesignDetail(formId);
+  }
 });
 </script>
 

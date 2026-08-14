@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import type { NotificationItem } from '@vben/layouts';
 
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { AuthenticationLoginExpiredModal } from '@vben/common-ui';
@@ -16,47 +16,75 @@ import { storeToRefs, useAccessStore, useUserStore } from '@vben/stores';
 
 import { Button, Drawer, Empty, Modal, Space, Tag } from 'ant-design-vue';
 
+import {
+  clearInbox,
+  listInboxMessages,
+  markAllInboxRead,
+  markInboxRead,
+  type WorkorderInboxMessage,
+} from '#/api/core/workorder/workorder_notification';
 import { useAuthStore } from '#/store';
 
 import AI from '#/views/ai/ai.vue';
 
-const NOTICE_STORAGE_KEY = 'cacops.header.notifications';
-
 const router = useRouter();
-
-function loadStoredNotifications(): NotificationItem[] {
-  try {
-    const raw = localStorage.getItem(NOTICE_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function persistNotifications(list: NotificationItem[]) {
-  try {
-    localStorage.setItem(NOTICE_STORAGE_KEY, JSON.stringify(list));
-  } catch {
-    // ignore quota / private mode errors
-  }
-}
-
-// 不再内置演示通知；清空后刷新也不会再出现假数据
-const notifications = ref<NotificationItem[]>(loadStoredNotifications());
-
-watch(
-  notifications,
-  (list) => {
-    persistNotifications(list);
-  },
-  { deep: true },
-);
-
 const userStore = useUserStore();
 const authStore = useAuthStore();
 const accessStore = useAccessStore();
+
+const notifications = ref<NotificationItem[]>([]);
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+function formatNoticeDate(value?: string): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function mapInboxItem(item: WorkorderInboxMessage): NotificationItem {
+  const instanceId = item.instance_id && item.instance_id > 0 ? item.instance_id : undefined;
+  return {
+    id: item.id,
+    avatar: preferences.app.defaultAvatar,
+    title: item.title || '工单通知',
+    message: item.content,
+    date: formatNoticeDate(item.created_at),
+    isRead: item.is_read === 2,
+    link: instanceId ? `/workorder/center?id=${instanceId}` : undefined,
+    actionText: instanceId ? '查看工单' : undefined,
+  };
+}
+
+async function loadInbox() {
+  if (!accessStore.accessToken) {
+    notifications.value = [];
+    return;
+  }
+  try {
+    const res = await listInboxMessages({ page: 1, size: 20 });
+    const items = ((res as any)?.items || []) as WorkorderInboxMessage[];
+    notifications.value = items.map(mapInboxItem);
+  } catch {
+    // 未登录或接口失败时保持静默，避免打断页面
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(() => {
+    void loadInbox();
+  }, 30_000);
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
 const showDot = computed(() =>
   notifications.value.some((item) => !item.isRead),
 );
@@ -74,21 +102,33 @@ const avatar = computed(() => {
 });
 
 async function handleLogout() {
+  stopPolling();
+  notifications.value = [];
   await authStore.logout(false);
 }
 
-function handleNoticeClear() {
+async function handleNoticeClear() {
+  try {
+    await clearInbox();
+  } catch {
+    // ignore
+  }
   notifications.value = [];
   listVisible.value = false;
   detailVisible.value = false;
   currentNotice.value = null;
 }
 
-function handleMakeAll() {
+async function handleMakeAll() {
+  try {
+    await markAllInboxRead();
+  } catch {
+    // ignore
+  }
   notifications.value.forEach((item) => (item.isRead = true));
 }
 
-function markNoticeRead(item: NotificationItem) {
+function markNoticeReadLocal(item: NotificationItem) {
   const target = notifications.value.find(
     (n) =>
       (item.id != null && n.id === item.id) ||
@@ -99,8 +139,20 @@ function markNoticeRead(item: NotificationItem) {
   }
 }
 
-function handleNoticeRead(item: NotificationItem) {
-  markNoticeRead(item);
+async function markNoticeRead(item: NotificationItem) {
+  markNoticeReadLocal(item);
+  const id = Number(item.id);
+  if (id > 0) {
+    try {
+      await markInboxRead(id);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+async function handleNoticeRead(item: NotificationItem) {
+  await markNoticeRead(item);
   currentNotice.value = { ...item, isRead: true };
   detailVisible.value = true;
 }
@@ -109,8 +161,8 @@ function handleViewAll() {
   listVisible.value = true;
 }
 
-function handleOpenFromList(item: NotificationItem) {
-  markNoticeRead(item);
+async function handleOpenFromList(item: NotificationItem) {
+  await markNoticeRead(item);
   currentNotice.value = { ...item, isRead: true };
   listVisible.value = false;
   detailVisible.value = true;
@@ -121,10 +173,40 @@ function handleNoticeAction() {
   if (!link) return;
   detailVisible.value = false;
   listVisible.value = false;
-  if (router.currentRoute.value.path !== link) {
-    router.push(link);
+  router.push(link);
+}
+
+watch(
+  () => accessStore.accessToken,
+  (token) => {
+    if (token) {
+      void loadInbox();
+      startPolling();
+    } else {
+      stopPolling();
+      notifications.value = [];
+    }
+  },
+);
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible' && accessStore.accessToken) {
+    void loadInbox();
   }
 }
+
+onMounted(() => {
+  if (accessStore.accessToken) {
+    void loadInbox();
+    startPolling();
+  }
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+});
+
+onUnmounted(() => {
+  stopPolling();
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
+});
 </script>
 
 <template>

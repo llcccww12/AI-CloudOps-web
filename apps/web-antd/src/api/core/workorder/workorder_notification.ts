@@ -38,6 +38,7 @@ export const IsDefault = {
 export const NotificationChannel = {
   EMAIL: 'email',       // 邮箱
   FEISHU: 'feishu',     // 飞书
+  INBOX: 'inbox',       // 站内信
   SMS: 'sms',           // 短信
   WEBHOOK: 'webhook',   // Webhook
 } as const;
@@ -331,6 +332,7 @@ export const getNotificationChannelName = (channel: string): string => {
   const channelNames: Record<string, string> = {
     [NotificationChannel.EMAIL]: '邮件',
     [NotificationChannel.FEISHU]: '飞书',
+    [NotificationChannel.INBOX]: '站内信',
     [NotificationChannel.SMS]: '短信',
     [NotificationChannel.WEBHOOK]: 'Webhook',
   };
@@ -354,7 +356,11 @@ export const getAllEventTypes = (): string[] => {
 };
 
 export const getAllNotificationChannels = (): string[] => {
-  return Object.values(NotificationChannel);
+  return [
+    NotificationChannel.INBOX,
+    NotificationChannel.EMAIL,
+    NotificationChannel.FEISHU,
+  ];
 };
 
 export const getAllRecipientTypes = (): string[] => {
@@ -403,4 +409,38 @@ export const getAvailableChannels = () => {
 
 export const sendNotificationManually = (data: ManualSendNotificationReq) => {
   return requestClient.post('/workorder/notification/send', data);
+};
+
+export interface WorkorderInboxMessage {
+  id: number;
+  user_id: number;
+  title: string;
+  content: string;
+  event_type: string;
+  instance_id?: number;
+  is_read: 1 | 2;
+  read_at?: string;
+  created_at?: string;
+}
+
+export const listInboxMessages = (params?: { page?: number; size?: number }) => {
+  return requestClient.get('/workorder/notification/inbox/list', {
+    params: { page: 1, size: 20, ...params },
+  });
+};
+
+export const getInboxUnreadCount = () => {
+  return requestClient.get('/workorder/notification/inbox/unread_count');
+};
+
+export const markInboxRead = (id: number) => {
+  return requestClient.post(`/workorder/notification/inbox/read/${id}`);
+};
+
+export const markAllInboxRead = () => {
+  return requestClient.post('/workorder/notification/inbox/read_all');
+};
+
+export const clearInbox = () => {
+  return requestClient.delete('/workorder/notification/inbox/clear');
 };

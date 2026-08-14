@@ -1,0 +1,409 @@
+/* 工单评论 / 时间轴 / 流转 / 通知 共用弹窗风格，跟随系统 token */
+
+.wo-record-modal .ant-modal-content {
+  overflow: hidden;
+}
+
+.wo-record-modal .ant-modal-header {
+  margin-bottom: 0;
+  padding: 14px 20px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+
+.wo-record-modal .ant-modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.wo-record-modal .ant-modal-body:has(.wo-record-shell) {
+  padding: 0;
+}
+
+.wo-record-shell {
+  display: flex;
+  flex-direction: column;
+  max-height: min(72vh, 740px);
+}
+
+.wo-record-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 20px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+}
+
+.wo-record-toolbar-meta {
+  min-width: 0;
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+}
+
+.wo-record-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wo-record-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px 20px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--muted));
+}
+
+.wo-record-summary-cell {
+  min-width: 0;
+  padding: 8px 10px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+}
+
+.wo-record-summary-label {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+
+.wo-record-summary-value {
+  margin-top: 2px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--foreground));
+  word-break: break-all;
+}
+
+.wo-record-scroll {
+  flex: 1;
+  min-height: 280px;
+  overflow: auto;
+  padding: 16px 20px 20px;
+  background: hsl(var(--background-deep));
+}
+
+.wo-record-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 20px 16px;
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+
+.wo-axis-gap {
+  display: grid;
+  grid-template-columns: 72px 20px 1fr;
+  min-height: var(--gap-h, 16px);
+  align-items: center;
+}
+
+.wo-axis-gap-rail {
+  grid-column: 2;
+  justify-self: center;
+  width: 2px;
+  height: 100%;
+  min-height: var(--gap-h, 16px);
+  background: repeating-linear-gradient(
+    to bottom,
+    hsl(var(--border)) 0 3px,
+    transparent 3px 7px
+  );
+}
+
+.wo-axis-gap-label {
+  grid-column: 3;
+  padding-left: 12px;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  font-variant-numeric: tabular-nums;
+}
+
+.wo-axis-day {
+  margin: 4px 0 8px 92px;
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+}
+
+.wo-axis-event {
+  display: grid;
+  grid-template-columns: 72px 20px 1fr;
+  align-items: stretch;
+}
+
+.wo-axis-time {
+  padding-top: 8px;
+  padding-right: 8px;
+  text-align: right;
+}
+
+.wo-axis-clock {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--foreground));
+}
+
+.wo-axis-index {
+  margin-top: 2px;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  font-variant-numeric: tabular-nums;
+}
+
+.wo-axis-rail {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.wo-axis-rail::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: hsl(var(--border));
+}
+
+.wo-axis-dot {
+  position: relative;
+  z-index: 1;
+  width: 10px;
+  height: 10px;
+  margin-top: 12px;
+  border-radius: 50%;
+  background: hsl(var(--card));
+  border: 2px solid hsl(var(--primary));
+}
+
+.wo-axis-dot.is-ok {
+  border-color: hsl(var(--success));
+}
+
+.wo-axis-dot.is-bad {
+  border-color: hsl(var(--destructive));
+}
+
+.wo-axis-dot.is-warn {
+  border-color: hsl(var(--warning));
+}
+
+.wo-axis-dot.is-note {
+  border-color: hsl(var(--muted-foreground));
+}
+
+.wo-axis-card {
+  margin: 0 0 8px 12px;
+  padding: 10px 12px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+}
+
+.wo-axis-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.wo-axis-action {
+  font-size: 14px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.wo-axis-operator {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+}
+
+.wo-axis-comment {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: hsl(var(--muted));
+  border-radius: calc(var(--radius) - 2px);
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.wo-axis-detail {
+  margin-top: 8px;
+  padding: 10px;
+  background: hsl(var(--muted));
+  border-radius: var(--radius);
+  font-size: 12px;
+  overflow: auto;
+}
+
+.wo-axis-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.wo-axis-arrow {
+  color: hsl(var(--muted-foreground));
+}
+
+.wo-log-item {
+  padding: 12px 0;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.wo-log-item:last-child {
+  border-bottom: 0;
+}
+
+.wo-log-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.wo-log-name {
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.wo-log-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+}
+
+.wo-log-meta strong {
+  color: hsl(var(--foreground));
+  font-weight: 500;
+}
+
+.wo-chat-list {
+  flex: 1;
+  min-height: 280px;
+  overflow: auto;
+  padding: 16px 20px;
+  background: hsl(var(--background-deep));
+}
+
+.wo-chat-item {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.wo-chat-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.wo-chat-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.wo-chat-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.wo-chat-time {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+
+.wo-chat-bubble {
+  display: inline-block;
+  max-width: 100%;
+  padding: 8px 12px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 2px 10px 10px 10px;
+  color: hsl(var(--foreground));
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.wo-chat-actions {
+  margin-top: 4px;
+}
+
+.wo-chat-replies {
+  margin-top: 8px;
+  padding-left: 8px;
+  border-left: 2px solid hsl(var(--border));
+}
+
+.wo-chat-composer {
+  padding: 12px 20px 16px;
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+
+.wo-chat-quote {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  background: hsl(var(--muted));
+  border-left: 3px solid hsl(var(--primary));
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+
+.wo-chat-quote-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wo-chat-composer-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.wo-chat-hint {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+
+@media (max-width: 640px) {
+  .wo-record-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .wo-axis-gap,
+  .wo-axis-event {
+    grid-template-columns: 58px 16px 1fr;
+  }
+
+  .wo-axis-day {
+    margin-left: 74px;
+  }
+}
