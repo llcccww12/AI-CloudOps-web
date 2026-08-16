@@ -43,7 +43,10 @@
 
         <div ref="chatListRef" class="wo-chat-list">
           <a-spin :spinning="loading">
-            <a-empty v-if="!loading && sortedComments.length === 0" description="还没有评论，在下方发第一条" />
+            <a-empty
+              v-if="!loading && sortedComments.length === 0"
+              description="还没有评论，在下方发第一条"
+            />
             <div
               v-for="comment in sortedComments"
               :key="comment.id"
@@ -58,11 +61,49 @@
                   <a-tag v-if="comment.is_system === 1" color="orange">系统</a-tag>
                   <span class="wo-chat-time">{{ formatRelativeTime(comment.created_at) }}</span>
                 </div>
-                <div class="wo-chat-bubble">{{ comment.content }}</div>
+                <div v-if="comment.content" class="wo-chat-bubble">{{ comment.content }}</div>
+                <div v-if="comment.attachments?.length" class="wo-chat-attachments">
+                  <div
+                    v-for="file in comment.attachments"
+                    :key="file.id"
+                    class="wo-chat-attachment"
+                  >
+                    <a-image
+                      v-if="isImageAttachment(file) && previewObjectUrls[file.id]"
+                      :src="previewObjectUrls[file.id]"
+                      :width="120"
+                    />
+                    <button
+                      v-else-if="isImageAttachment(file)"
+                      type="button"
+                      class="wo-chat-file"
+                      @click="handleDownloadAttachment(file)"
+                    >
+                      <span class="wo-chat-file-name">{{ file.file_name }}</span>
+                      <span class="wo-chat-file-size">{{ formatFileSize(file.size) }}</span>
+                    </button>
+                    <button
+                      v-else
+                      type="button"
+                      class="wo-chat-file"
+                      @click="handleDownloadAttachment(file)"
+                    >
+                      <span class="wo-chat-file-name">{{ file.file_name }}</span>
+                      <span class="wo-chat-file-size">{{ formatFileSize(file.size) }}</span>
+                    </button>
+                  </div>
+                </div>
                 <div class="wo-chat-actions">
                   <a-button type="link" size="small" @click="startReply(comment)">回复</a-button>
                   <a-button type="link" size="small" @click="startQuote(comment)">引用</a-button>
-                  <a-button type="link" size="small" @click="copyComment(comment.content)">复制</a-button>
+                  <a-button
+                    v-if="comment.content"
+                    type="link"
+                    size="small"
+                    @click="copyComment(comment.content)"
+                  >
+                    复制
+                  </a-button>
                 </div>
                 <div v-if="comment.children?.length" class="wo-chat-replies">
                   <div
@@ -78,7 +119,29 @@
                         <span class="wo-chat-name">{{ reply.operator_name || '未知用户' }}</span>
                         <span class="wo-chat-time">{{ formatRelativeTime(reply.created_at) }}</span>
                       </div>
-                      <div class="wo-chat-bubble">{{ reply.content }}</div>
+                      <div v-if="reply.content" class="wo-chat-bubble">{{ reply.content }}</div>
+                      <div v-if="reply.attachments?.length" class="wo-chat-attachments">
+                        <div
+                          v-for="file in reply.attachments"
+                          :key="file.id"
+                          class="wo-chat-attachment"
+                        >
+                          <a-image
+                            v-if="isImageAttachment(file) && previewObjectUrls[file.id]"
+                            :src="previewObjectUrls[file.id]"
+                            :width="100"
+                          />
+                          <button
+                            v-else
+                            type="button"
+                            class="wo-chat-file"
+                            @click="handleDownloadAttachment(file)"
+                          >
+                            <span class="wo-chat-file-name">{{ file.file_name }}</span>
+                            <span class="wo-chat-file-size">{{ formatFileSize(file.size) }}</span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -105,11 +168,44 @@
             :maxlength="500"
             @keydown.ctrl.enter="submitQuickComment"
           />
+          <div v-if="pendingAttachments.length" class="wo-pending-files">
+            <div
+              v-for="item in pendingAttachments"
+              :key="item.id"
+              class="wo-pending-file"
+            >
+              <span class="wo-pending-name">{{ item.file_name }}</span>
+              <span class="wo-pending-size">{{ formatFileSize(item.size) }}</span>
+              <a-button type="link" size="small" danger @click="removePendingAttachment(item.id)">
+                移除
+              </a-button>
+            </div>
+          </div>
           <div class="wo-chat-composer-actions">
-            <span class="wo-chat-hint">Ctrl + Enter 发送</span>
-            <a-button type="primary" size="small" :loading="quickCommenting" @click="submitQuickComment">
-              发送
-            </a-button>
+            <div class="wo-composer-left">
+              <a-upload
+                :show-upload-list="false"
+                :multiple="true"
+                :before-upload="beforeUploadAttachment"
+                :disabled="uploadingAttachment || pendingAttachments.length >= maxAttachmentCount"
+                accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.log,.md,.docx,.xlsx,.pptx,.zip"
+              >
+                <a-button size="small" :loading="uploadingAttachment">附件</a-button>
+              </a-upload>
+              <span class="wo-chat-hint">最多 {{ maxAttachmentCount }} 个，单文件 10MB</span>
+            </div>
+            <div class="wo-composer-right">
+              <span class="wo-chat-hint">Ctrl + Enter 发送</span>
+              <a-button
+                type="primary"
+                size="small"
+                :loading="quickCommenting"
+                :disabled="uploadingAttachment"
+                @click="submitQuickComment"
+              >
+                发送
+              </a-button>
+            </div>
           </div>
         </div>
       </div>
@@ -118,13 +214,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, reactive, ref } from 'vue';
 import { message } from 'ant-design-vue';
 
 import {
   CommentType,
   createWorkorderInstanceComment,
+  deleteCommentAttachment,
+  downloadCommentAttachment,
   getInstanceCommentsTree,
+  uploadCommentAttachment,
+  type CommentAttachment,
   type CreateWorkorderInstanceCommentReq,
   type GetInstanceCommentsTreeReq,
   type WorkorderInstanceCommentItem,
@@ -145,12 +245,18 @@ withDefaults(defineProps<Props>(), {
   instance: undefined,
 });
 
+const maxAttachmentCount = 5;
+const maxAttachmentSize = 10 * 1024 * 1024;
+
 const loading = ref(false);
 const commentsList = ref<WorkorderInstanceCommentItem[]>([]);
 const quickCommenting = ref(false);
+const uploadingAttachment = ref(false);
 const quickCommentText = ref('');
 const composingReply = ref<WorkorderInstanceCommentItem | null>(null);
 const composingQuote = ref<WorkorderInstanceCommentItem | null>(null);
+const pendingAttachments = ref<CommentAttachment[]>([]);
+const previewObjectUrls = ref<Record<number, string>>({});
 const chatListRef = ref<HTMLElement | null>(null);
 const quickTextareaRef = ref();
 
@@ -186,7 +292,7 @@ const previewDialogWidth = computed(() => {
 const composerPlaceholder = computed(() => {
   if (composingReply.value) return `回复 ${composingReply.value.operator_name}...`;
   if (composingQuote.value) return '补充说明后发送';
-  return '输入消息，Enter 换行，Ctrl + Enter 发送';
+  return '输入消息或添加附件，Ctrl + Enter 发送';
 });
 
 const sortedComments = computed(() => {
@@ -212,6 +318,13 @@ const formatRelativeTime = (dateStr: string | undefined) => {
   });
 };
 
+const formatFileSize = (size: number) => {
+  if (!size || size < 0) return '0B';
+  if (size < 1024) return `${size}B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)}KB`;
+  return `${(size / 1024 / 1024).toFixed(1)}MB`;
+};
+
 const getInitials = (name: string | undefined) => {
   if (!name) return '';
   return name.split('').slice(0, 2).join('').toUpperCase();
@@ -230,6 +343,20 @@ const getAvatarColor = (name: string | undefined) => {
 const truncateText = (text: string, maxLength: number) => {
   if (!text) return '';
   return text.length <= maxLength ? text : `${text.slice(0, maxLength)}...`;
+};
+
+const isImageAttachment = (file: CommentAttachment) => {
+  return (file.content_type || '').startsWith('image/');
+};
+
+const ensurePreviewBlob = async (id: number) => {
+  if (previewObjectUrls.value[id]) return;
+  try {
+    const blob = await downloadCommentAttachment(id);
+    previewObjectUrls.value[id] = URL.createObjectURL(blob);
+  } catch {
+    // 预览失败时走下载按钮
+  }
 };
 
 const scrollChatToBottom = async () => {
@@ -281,6 +408,17 @@ const loadComments = async (instanceId: number) => {
     const params: GetInstanceCommentsTreeReq = { id: instanceId };
     const res = await getInstanceCommentsTree(params);
     commentsList.value = res || [];
+    const imageIds: number[] = [];
+    const collect = (items: WorkorderInstanceCommentItem[]) => {
+      for (const item of items) {
+        for (const file of item.attachments || []) {
+          if (isImageAttachment(file)) imageIds.push(file.id);
+        }
+        if (item.children?.length) collect(item.children);
+      }
+    };
+    collect(commentsList.value);
+    await Promise.all(imageIds.map((id) => ensurePreviewBlob(id)));
     await scrollChatToBottom();
   } catch (error: any) {
     message.error(`加载评论失败: ${error.message || '未知错误'}`);
@@ -300,13 +438,78 @@ const refreshComments = async () => {
 const buildSendContent = () => {
   const text = quickCommentText.value.trim();
   if (!composingQuote.value) return text;
-  const quoted = truncateText(composingQuote.value.content, 80);
-  return `引用 @${composingQuote.value.operator_name}：${quoted}\n${text}`;
+  const quoted = truncateText(composingQuote.value.content || '', 80);
+  return `引用 @${composingQuote.value.operator_name}：${quoted}\n${text}`.trim();
+};
+
+const beforeUploadAttachment = async (file: File & { originFileObj?: File }) => {
+  if (!commentsViewDialog.instanceId) {
+    message.warning('工单信息不存在');
+    return false;
+  }
+  const rawFile = file.originFileObj || file;
+  if (pendingAttachments.value.length >= maxAttachmentCount) {
+    message.warning(`最多上传 ${maxAttachmentCount} 个附件`);
+    return false;
+  }
+  if (rawFile.size > maxAttachmentSize) {
+    message.warning('单文件不能超过 10MB');
+    return false;
+  }
+  try {
+    uploadingAttachment.value = true;
+    const res = await uploadCommentAttachment(
+      commentsViewDialog.instanceId,
+      rawFile,
+    );
+    pendingAttachments.value.push(res);
+    message.success(`已添加 ${rawFile.name || file.name}`);
+  } catch (error: any) {
+    const msg =
+      typeof error === 'string'
+        ? error
+        : error?.message || error?.msg || '未知错误';
+    message.error(`上传失败: ${msg}`);
+  } finally {
+    uploadingAttachment.value = false;
+  }
+  return false;
+};
+
+const removePendingAttachment = async (id: number) => {
+  try {
+    await deleteCommentAttachment(id);
+  } catch {
+    // 本地移除即可，避免卡住发送
+  }
+  pendingAttachments.value = pendingAttachments.value.filter((item) => item.id !== id);
+};
+
+const clearPendingAttachments = () => {
+  pendingAttachments.value = [];
+};
+
+const handleDownloadAttachment = async (file: CommentAttachment) => {
+  try {
+    const blob = await downloadCommentAttachment(file.id);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = file.file_name || `attachment-${file.id}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  } catch (error: any) {
+    message.error(`下载失败: ${error.message || '未知错误'}`);
+  }
 };
 
 const submitQuickComment = async () => {
-  if (!quickCommentText.value.trim() && !composingQuote.value) {
-    message.warning('请输入评论内容');
+  const content = buildSendContent();
+  const attachmentIds = pendingAttachments.value.map((item) => item.id);
+  if (!content && attachmentIds.length === 0) {
+    message.warning('请输入评论内容或添加附件');
     return;
   }
 
@@ -314,13 +517,15 @@ const submitQuickComment = async () => {
     quickCommenting.value = true;
     await createWorkorderInstanceComment({
       instance_id: commentsViewDialog.instanceId,
-      content: buildSendContent(),
+      content,
       parent_id: composingReply.value?.id,
       type: CommentType.NORMAL,
       is_system: 2,
+      attachment_ids: attachmentIds,
     });
     quickCommentText.value = '';
     clearComposerContext();
+    clearPendingAttachments();
     message.success('已发送');
     await refreshComments();
     emit('commentAdded');
@@ -333,7 +538,7 @@ const submitQuickComment = async () => {
 
 const saveComment = async () => {
   try {
-    if (!commentDialog.form.content.trim()) {
+    if (!commentDialog.form.content?.trim()) {
       message.error('请输入评论内容');
       return;
     }
@@ -367,8 +572,13 @@ const showCommentsView = async (instanceId: number) => {
   commentsViewDialog.visible = true;
   quickCommentText.value = '';
   clearComposerContext();
+  clearPendingAttachments();
   await loadComments(instanceId);
 };
+
+onBeforeUnmount(() => {
+  Object.values(previewObjectUrls.value).forEach((url) => URL.revokeObjectURL(url));
+});
 
 defineExpose({
   showCommentDialog,

@@ -381,11 +381,90 @@
   white-space: nowrap;
 }
 
+.wo-chat-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.wo-chat-attachment {
+  max-width: 100%;
+}
+
+.wo-chat-file {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  max-width: 260px;
+  padding: 8px 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  text-align: left;
+}
+
+.wo-chat-file:hover {
+  border-color: hsl(var(--primary));
+}
+
+.wo-chat-file-name {
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.wo-chat-file-size {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+
+.wo-pending-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.wo-pending-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: hsl(var(--muted));
+  border-radius: var(--radius);
+}
+
+.wo-pending-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.wo-pending-size {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+
+.wo-composer-left,
+.wo-composer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .wo-chat-composer-actions {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-top: 8px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .wo-chat-hint {

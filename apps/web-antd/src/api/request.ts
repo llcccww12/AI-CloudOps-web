@@ -115,6 +115,14 @@ function createRequestClient(baseURL: string) {
       const currentToken = accessStore.accessToken;
       config.headers.Authorization = formatToken(currentToken);
       config.headers['Accept-Language'] = preferences.app.locale;
+      // FormData 必须由浏览器自动带 boundary；清掉默认 application/json
+      if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+        if (typeof config.headers?.set === 'function') {
+          config.headers.set('Content-Type', false);
+        } else {
+          delete (config.headers as Record<string, unknown>)['Content-Type'];
+        }
+      }
       return config;
     },
   });
@@ -130,11 +138,29 @@ function createRequestClient(baseURL: string) {
       }
 
       // 处理常规JSON响应
-      const { code, data, message: msg } = responseData;
+      if (
+        responseData == null ||
+        typeof responseData !== 'object' ||
+        Array.isArray(responseData)
+      ) {
+        throw new Error(
+          `Error ${status}: 接口返回非 JSON（常见原因：后端未重启或路由 404）`,
+        );
+      }
+      const { code, data, message: msg } = responseData as {
+        code?: number;
+        data?: unknown;
+        message?: string;
+      };
+      if (typeof code !== 'number') {
+        throw new Error(
+          `Error ${status}: 接口返回缺少 code 字段（常见原因：后端未重启或路由 404）`,
+        );
+      }
       if (status >= 200 && status < 400 && code === 0) {
         return data;
       }
-      throw new Error(`Error ${status}: ${msg}`);
+      throw new Error(`Error ${status}: ${msg || '请求失败'}`);
     },
   });
 

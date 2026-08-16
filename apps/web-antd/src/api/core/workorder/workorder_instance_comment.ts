@@ -11,6 +11,19 @@ export const CommentStatus = {
   HIDDEN: 3, // 已隐藏
 } as const;
 
+export interface CommentAttachment {
+  id: number;
+  created_at?: string;
+  updated_at?: string;
+  instance_id: number;
+  comment_id?: number | null;
+  operator_id: number;
+  file_name: string;
+  stored_name: string;
+  content_type: string;
+  size: number;
+}
+
 export interface WorkorderInstanceCommentItem {
   id: number; // 评论ID
   created_at: string; // 创建时间
@@ -24,15 +37,17 @@ export interface WorkorderInstanceCommentItem {
   status: number; // 状态：1-正常，2-已删除，3-已隐藏
   is_system: number; // 是否系统评论：1-是，2-否
   children?: WorkorderInstanceCommentItem[]; // 子评论
+  attachments?: CommentAttachment[];
 }
 
 export interface CreateWorkorderInstanceCommentReq {
   instance_id: number; // 工单实例ID
-  content: string; // 评论内容
+  content?: string; // 评论内容
   parent_id?: number; // 父评论ID
   type?: string; // 评论类型
   status?: number; // 状态
   is_system?: number; // 是否系统评论
+  attachment_ids?: number[];
 }
 
 export interface UpdateWorkorderInstanceCommentReq {
@@ -60,7 +75,7 @@ export interface ListWorkorderInstanceCommentReq {
 }
 
 export interface GetInstanceCommentsTreeReq {
-  id: number; 
+  id: number;
 }
 
 export async function createWorkorderInstanceComment(
@@ -97,4 +112,27 @@ export async function getInstanceCommentsTree(
   params: GetInstanceCommentsTreeReq,
 ) {
   return requestClient.get(`/workorder/instance/comment/tree/${params.id}`);
+}
+
+export async function uploadCommentAttachment(instanceId: number, file: File) {
+  const formData = new FormData();
+  formData.append('instance_id', String(instanceId));
+  formData.append('file', file);
+  return requestClient.post<CommentAttachment>(
+    '/workorder/instance/comment/attachment/upload',
+    formData,
+  );
+}
+
+export async function downloadCommentAttachment(id: number) {
+  return requestClient.get<Blob>(
+    `/workorder/instance/comment/attachment/${id}/download`,
+    {
+      responseType: 'blob',
+    },
+  );
+}
+
+export async function deleteCommentAttachment(id: number) {
+  return requestClient.delete(`/workorder/instance/comment/attachment/${id}`);
 }
