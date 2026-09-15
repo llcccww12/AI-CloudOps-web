@@ -39,8 +39,8 @@ const style = computed((): CSSProperties => {
 
   const compactStyle: CSSProperties =
     contentCompact === 'compact'
-      ? { margin: '0 auto', width: `${props.contentCompactWidth}px` }
-      : {};
+      ? { margin: '0 auto', maxWidth: `${props.contentCompactWidth}px`, width: '100%' }
+      : { width: '100%', maxWidth: 'none' };
   return {
     ...compactStyle,
     flex: 1,

@@ -11,6 +11,8 @@ export const overridesPreferences = defineOverridesPreferences({
     accessMode: 'frontend',
     enableRefreshToken: true,
     name: import.meta.env.VITE_APP_TITLE,
+    // 运营台账等页面需要全宽，避免宽屏右侧大块留白
+    contentCompact: 'wide',
   },
   copyright: {
     enable: false,
@@ -20,7 +22,7 @@ export const overridesPreferences = defineOverridesPreferences({
   },
   logo: {
     enable: true,
-    source: '/logo.png',
+    source: '',
   },
   theme: {
     mode: 'light',

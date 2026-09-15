@@ -117,10 +117,19 @@ function createRequestClient(baseURL: string) {
       config.headers['Accept-Language'] = preferences.app.locale;
       // FormData 必须由浏览器自动带 boundary；清掉默认 application/json
       if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
-        if (typeof config.headers?.set === 'function') {
-          config.headers.set('Content-Type', false);
-        } else {
-          delete (config.headers as Record<string, unknown>)['Content-Type'];
+        const headers = config.headers as any;
+        if (headers) {
+          if (typeof headers.delete === 'function') {
+            headers.delete('Content-Type');
+            headers.delete('content-type');
+          }
+          if (typeof headers.set === 'function') {
+            // axios：false 表示不设 Content-Type，交给浏览器补 boundary
+            headers.set('Content-Type', false);
+          } else {
+            delete headers['Content-Type'];
+            delete headers['content-type'];
+          }
         }
       }
       return config;
@@ -178,6 +187,26 @@ function createRequestClient(baseURL: string) {
   // 通用的错误处理,如果没有进入上面的错误处理逻辑，就会进入这里
   client.addResponseInterceptor(
     errorMessageResponseInterceptor((msg: string, error) => {
+      const cfg = (error as any)?.config || (error as any)?.response?.config;
+      if (
+        cfg?.headers?.['X-Suppress-Error'] === '1' ||
+        cfg?.headers?.['x-suppress-error'] === '1'
+      ) {
+        return;
+      }
+      const respData = (error as any)?.response?.data;
+      const apiMessage = String(respData?.message || '').trim();
+      const apiDetail =
+        typeof respData?.data === 'string' ? String(respData.data).trim() : '';
+      if (apiMessage && apiMessage !== 'undefined' && apiMessage !== 'null') {
+        // 绑定失败时优先展示后端 message（已含详情）
+        message.error(apiMessage);
+        return;
+      }
+      if (apiDetail) {
+        message.error(apiDetail);
+        return;
+      }
       const raw = String((error as any)?.message || '');
       const matched = raw.match(/^Error \d+:\s*(.+)$/);
       const backendMsg = matched?.[1]?.trim();

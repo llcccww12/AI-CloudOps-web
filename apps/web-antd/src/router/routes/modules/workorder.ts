@@ -2,11 +2,13 @@ import type { RouteRecordRaw } from 'vue-router';
 import { RouterView } from 'vue-router';
 
 import { BasicLayout } from '#/layouts';
+import { AuthorityCommon } from '#/constants/roles';
 
 const routes: RouteRecordRaw[] = [
   {
     component: BasicLayout,
     meta: {
+      authority: AuthorityCommon,
       icon: 'lucide:ticket',
       order: -1,
       title: '工单管理',

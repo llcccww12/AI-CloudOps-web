@@ -34,6 +34,10 @@ async function generateRoutesByFrontend(
  * @param access
  */
 function hasAuthority(route: RouteRecordRaw, access: string[]) {
+  // 管理员角色可见全部菜单
+  if (access.includes('admin')) {
+    return true;
+  }
   const authority = route.meta?.authority;
   if (!authority) {
     return true;

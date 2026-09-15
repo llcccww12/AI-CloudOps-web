@@ -9,10 +9,17 @@
           </div>
           <div class="header-text">
             <h1 class="page-title">知识库管理</h1>
-            <p class="page-subtitle">管理智能助手的知识库和文档资源</p>
+            <p class="page-subtitle">
+              文档已按运营/运维/公共分域存放；选「全部文档」可一次看到原来的内容
+            </p>
           </div>
         </div>
         <div class="header-actions">
+          <a-segmented
+            v-model:value="listFilter"
+            :options="listFilterOptions"
+            @change="onDomainChange"
+          />
           <a-button type="primary" @click="refreshKnowledge" :loading="refreshing">
             <template #icon><ReloadOutlined /></template>
             同步索引到 AI
@@ -27,7 +34,7 @@
         type="info"
         show-icon
         message="两层存储说明"
-        description="文档先保存在磁盘知识库目录（可长期查看/编辑）；「同步索引到 AI」会把磁盘文档重建进向量库，RAG 回答才会用到最新内容。「需同步」表示磁盘已有文件，但向量库还没跟上。"
+        description="文档仍在磁盘上，已拆到运营/运维/公共三个目录。默认看「全部文档」；上传/编辑请先切到具体域。同步索引会重建向量库，RAG 才用到最新内容。"
       />
       <div class="stats-grid">
         <a-card class="stat-card">
@@ -66,6 +73,9 @@
           <a-col :span="12">
             <a-card title="文档上传" class="function-card">
               <a-form layout="vertical" class="upload-meta-form">
+                <a-form-item label="写入知识域">
+                  <a-select v-model:value="writeDomain" :options="writeDomainOptions" />
+                </a-form-item>
                 <a-form-item label="文档标题">
                   <a-input
                     v-model:value="uploadMeta.title"
@@ -165,7 +175,10 @@
           size="small"
         >
           <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'source'">
+            <template v-if="column.key === 'domain'">
+              <a-tag color="processing">{{ knowledgeDomainLabel(record.domain || writeDomain) }}</a-tag>
+            </template>
+            <template v-else-if="column.key === 'source'">
               <a-tag :color="record.source === 'builtin' ? 'blue' : 'default'">
                 {{ record.source === 'builtin' ? '内置' : '用户' }}
               </a-tag>
@@ -285,7 +298,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, onMounted, computed } from 'vue';
 import { message } from 'ant-design-vue';
 import {
   ReloadOutlined,
@@ -311,6 +324,51 @@ import {
   type AddDocumentResponse,
   type KnowledgeDocumentItem,
 } from '#/api/core/aiops/assistant';
+import {
+  knowledgeDomainLabel,
+  resolveAvailableKnowledgeDomains,
+  resolveDefaultKnowledgeDomain,
+  resolveKnowledgeListFilters,
+  type KnowledgeDomain,
+  type KnowledgeDomainFilter,
+} from '#/constants/knowledge-domain';
+import { useUserStore } from '@vben/stores';
+
+const userStore = useUserStore();
+const availableDomains = computed(() =>
+  resolveAvailableKnowledgeDomains(userStore.userInfo?.roles as string[] | undefined),
+);
+/** 列表筛选：默认全部，避免拆域后看起来像「内容没了」 */
+const listFilter = ref<KnowledgeDomainFilter>('all');
+/** 写入目标域（上传/新增/同步） */
+const writeDomain = ref<KnowledgeDomain>(
+  resolveDefaultKnowledgeDomain(userStore.userInfo?.roles as string[] | undefined),
+);
+const listFilterOptions = computed(() =>
+  resolveKnowledgeListFilters(userStore.userInfo?.roles as string[] | undefined).map(
+    (value) => ({
+      value,
+      label: knowledgeDomainLabel(value),
+    }),
+  ),
+);
+const writeDomainOptions = computed(() =>
+  availableDomains.value.map((value) => ({
+    value,
+    label: knowledgeDomainLabel(value),
+  })),
+);
+
+const onDomainChange = () => {
+  if (listFilter.value !== 'all') {
+    writeDomain.value = listFilter.value;
+  }
+  loadDocuments();
+};
+
+const resolveDocDomain = (record?: KnowledgeDocumentItem): KnowledgeDomain =>
+  (record?.domain as KnowledgeDomain) ||
+  (listFilter.value !== 'all' ? listFilter.value : writeDomain.value);
 
 // 响应式数据
 const refreshing = ref(false);
@@ -358,9 +416,11 @@ const editForm = reactive({
   filename: '',
   use_when: '',
   content: '',
+  domain: '' as KnowledgeDomain | '',
 });
 
 const documentColumns = [
+  { title: '知识域', key: 'domain', width: 110 },
   { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
   { title: '来源', key: 'source', width: 90 },
   { title: '文件名', dataIndex: 'filename', key: 'filename', width: 180, ellipsis: true },
@@ -399,7 +459,7 @@ const addLog = (type: OperationLog['type'], message: string) => {
 const loadDocuments = async () => {
   try {
     documentsLoading.value = true;
-    const response = (await listKnowledgeDocuments()) as any;
+    const response = (await listKnowledgeDocuments(listFilter.value)) as any;
     documents.value = response?.documents || [];
     knowledgeStats.documents_count = response?.documents_count ?? documents.value.length;
     knowledgeStats.vector_count = response?.vector_count ?? 0;
@@ -422,7 +482,10 @@ const openView = async (record: KnowledgeDocumentItem) => {
   viewDetail.content = '';
   viewDetail.indexed = !!record.indexed;
   try {
-    const detail = (await getKnowledgeDocument(docKey(record))) as any;
+    const detail = (await getKnowledgeDocument(
+      docKey(record),
+      resolveDocDomain(record),
+    )) as any;
     viewDetail.title = detail?.title || viewDetail.title;
     viewDetail.filename = detail?.filename || viewDetail.filename;
     viewDetail.use_when = detail?.use_when || '';
@@ -444,8 +507,12 @@ const openEdit = async (record: KnowledgeDocumentItem) => {
   editForm.filename = record.filename || '';
   editForm.use_when = record.use_when || '';
   editForm.content = '';
+  editForm.domain = resolveDocDomain(record);
   try {
-    const detail = (await getKnowledgeDocument(docKey(record))) as any;
+    const detail = (await getKnowledgeDocument(
+      docKey(record),
+      resolveDocDomain(record),
+    )) as any;
     editForm.title = detail?.title || editForm.title;
     editForm.filename = detail?.filename || editForm.filename;
     editForm.use_when = detail?.use_when || '';
@@ -467,11 +534,17 @@ const saveEdit = async () => {
   }
   try {
     editSaving.value = true;
-    const result = (await updateKnowledgeDocument(editForm.key, {
-      title: editForm.title,
-      use_when: editForm.use_when,
-      content: editForm.content,
-    })) as any;
+    const result = (await updateKnowledgeDocument(
+      editForm.key,
+      {
+        title: editForm.title,
+        use_when: editForm.use_when,
+        content: editForm.content,
+      },
+      resolveDocDomain({
+        domain: editForm.domain || writeDomain.value,
+      } as KnowledgeDocumentItem),
+    )) as any;
     message.success(result?.message || '文档已更新');
     addLog('success', `文档已更新: ${editForm.filename}`);
     editOpen.value = false;
@@ -488,7 +561,10 @@ const handleDelete = async (record: KnowledgeDocumentItem) => {
   const key = docKey(record);
   try {
     deletingKey.value = key;
-    const result = (await deleteKnowledgeDocument(key)) as any;
+    const result = (await deleteKnowledgeDocument(
+      key,
+      resolveDocDomain(record),
+    )) as any;
     message.success(result?.message || '文档已删除');
     addLog('success', `文档已删除: ${record.filename}`);
     await loadDocuments();
@@ -504,7 +580,9 @@ const handleDelete = async (record: KnowledgeDocumentItem) => {
 const refreshKnowledge = async () => {
   try {
     refreshing.value = true;
-    const response = await refreshKnowledgeBase();
+    const syncDomain =
+      listFilter.value === 'all' ? undefined : listFilter.value;
+    const response = await refreshKnowledgeBase(syncDomain);
     const data = response as RefreshKnowledgeResponse;
     
     if (data.refreshed) {
@@ -555,6 +633,7 @@ const handleUpload = async (options: any) => {
     const response = await uploadKnowledgeFile(file, {
       title: uploadMeta.title || undefined,
       use_when: uploadMeta.use_when || undefined,
+      domain: writeDomain.value,
     });
     const data = response as UploadKnowledgeResponse;
     
@@ -592,7 +671,10 @@ const addDocument = async () => {
   
   try {
     adding.value = true;
-    const response = await addDocumentAPI(documentForm);
+    const response = await addDocumentAPI({
+      ...documentForm,
+      domain: writeDomain.value,
+    });
     const data = response as AddDocumentResponse;
     
     if (data.added) {

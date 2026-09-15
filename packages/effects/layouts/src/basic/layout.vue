@@ -152,7 +152,7 @@ const headerSlots = computed(() => {
 <template>
   <VbenAdminLayout
     v-model:sidebar-extra-visible="sidebarExtraVisible"
-    :content-compact="preferences.app.contentCompact"
+    :content-compact="'wide'"
     :footer-enable="preferences.footer.enable"
     :footer-fixed="preferences.footer.fixed"
     :header-hidden="preferences.header.hidden"

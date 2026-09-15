@@ -9,7 +9,7 @@
     },
     "dashboard": {
       "title": "系统管理",
-      "welcome": "欢迎页",
+      "welcome": "运营大屏",
       "menus": "菜单管理",
       "users": "用户管理",
       "roles": "权限管理",

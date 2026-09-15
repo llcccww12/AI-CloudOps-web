@@ -52,6 +52,7 @@ export const useAuthStore = defineStore('auth', () => {
           ...userInfo,
           realName: userInfo.real_name || '',
           userId: userInfo.user_id || '',
+          roles: userInfo.roles || [],
         };
         userStore.setUserInfo(basicUserInfo);
         accessStore.setAccessCodes(accessCodes);
@@ -108,11 +109,26 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function fetchUserInfo() {
     let userInfo: null | UserInfo = null;
-    userInfo = await getUserInfoApi();
+    const raw = await getUserInfoApi();
+    const roles = Array.isArray((raw as any)?.roles)
+      ? ((raw as any).roles as string[])
+      : [];
+    userInfo = {
+      ...(raw as any),
+      roles,
+      user_id: String((raw as any)?.user_id || (raw as any)?.id || ''),
+      real_name: (raw as any)?.real_name || (raw as any)?.username || '',
+      username: (raw as any)?.username || '',
+      homePath: (raw as any)?.home_path || (raw as any)?.homePath || DEFAULT_HOME_PATH,
+      desc: (raw as any)?.desc || '',
+      token: '',
+      avatar: (raw as any)?.avatar || '',
+    } as UserInfo;
     const basicUserInfo = {
       ...userInfo,
       realName: userInfo.real_name || '',
       userId: userInfo.user_id || '',
+      roles: userInfo.roles || [],
     };
     userStore.setUserInfo(basicUserInfo);
     return userInfo;

@@ -107,6 +107,15 @@
               {{ process.name }}
             </a-select-option>
           </a-select>
+          <a-select
+            v-model:value="sourceFilter"
+            placeholder="来源"
+            class="source-filter"
+            @change="handleSourceChange"
+          >
+            <a-select-option :value="undefined">全部来源</a-select-option>
+            <a-select-option value="public_fault">客户报障</a-select-option>
+          </a-select>
         </div>
       </div>
     </div>
@@ -296,6 +305,12 @@
                         v-if="canShowClaimAction(record)"
                       >
                         领取工单
+                      </a-menu-item>
+                      <a-menu-item
+                        key="dispatch"
+                        v-if="canShowDispatchAction(record)"
+                      >
+                        工单下发
                       </a-menu-item>
                       <a-menu-item
                         key="assign"
@@ -1228,6 +1243,20 @@
           </div>
         </div>
 
+        <div
+          v-if="detailDeliveryPack"
+          class="form-data-preview"
+          style="margin-top: 16px"
+        >
+          <h3>开通交付材料</h3>
+          <OpsDeliveryPack
+            :scene="detailDeliveryPack.scene"
+            :biz-id="detailDeliveryPack.bizId"
+            :contract-id="detailDeliveryPack.contractId || 0"
+            compact
+          />
+        </div>
+
         <!-- 可用动作 -->
         <div
           class="available-actions-section"
@@ -1258,6 +1287,15 @@
                 v-if="canShowClaimAction(detailDialog.instance)"
               >
                 领取工单
+              </a-button>
+
+              <!-- 工单下发 -->
+              <a-button
+                type="default"
+                @click="handleActionDispatch(detailDialog.instance)"
+                v-if="canShowDispatchAction(detailDialog.instance)"
+              >
+                工单下发
               </a-button>
 
               <!-- 转办协同 -->
@@ -1318,6 +1356,15 @@
                 v-if="detailDialog.availableActions.includes('cancel')"
               >
                 取消工单
+              </a-button>
+
+              <!-- 删除（仅创建者） -->
+              <a-button
+                danger
+                @click="confirmDelete(detailDialog.instance)"
+                v-if="canDeleteInstance(detailDialog.instance)"
+              >
+                删除工单
               </a-button>
 
               <!-- 完成工单 -->
@@ -1546,7 +1593,13 @@
           </a-select>
         </a-form-item>
         <a-form-item
-          :label="assignDialog.mode === 'forward' ? '流转说明' : '转办说明'"
+          :label="
+            assignDialog.mode === 'forward'
+              ? '流转说明'
+              : assignDialog.mode === 'dispatch'
+                ? '下发说明'
+                : '转办说明'
+          "
         >
           <a-textarea
             v-model:value="assignDialog.form.comment"
@@ -1700,18 +1753,15 @@
       :title="getApprovalDialogTitle()"
       :width="dialogWidth"
       @ok="saveApproval"
-      @cancel="
-        () => {
-          approvalDialog.visible = false;
-        }
-      "
+      @cancel="closeApprovalDialog"
       :destroy-on-close="true"
+      :confirm-loading="loading"
       class="responsive-modal"
     >
       <!-- 步骤信息提示 -->
       <div v-if="detailDialog.currentStep" class="approval-step-info">
         <a-alert
-          :type="detailDialog.currentStep.type === 'end' ? 'warning' : 'info'"
+          :type="approvalWillComplete ? 'warning' : 'info'"
           :message="getStepMessage()"
           show-icon
           style="margin-bottom: 16px"
@@ -1719,6 +1769,94 @@
       </div>
 
       <a-form :model="approvalDialog.form" layout="vertical">
+        <LifecycleNodeForm
+          v-if="
+            approvalDialog.type === 'approve' &&
+            approvalDialog.lifecycleEnabled &&
+            approvalDialog.lifecycleNodeKey
+          "
+          ref="lifecycleFormRef"
+          v-model="approvalDialog.lifecyclePayload"
+          :node-key="approvalDialog.lifecycleNodeKey"
+          :context="approvalDialog.lifecycleContext"
+        />
+
+        <div
+          v-if="
+            approvalDialog.type === 'approve' &&
+            !approvalDialog.lifecycleEnabled &&
+            approvalDeliveryPack
+          "
+          style="margin-bottom: 16px"
+        >
+          <OpsDeliveryPack
+            :scene="approvalDeliveryPack.scene"
+            :biz-id="approvalDeliveryPack.bizId"
+            :contract-id="approvalDeliveryPack.contractId || 0"
+            compact
+          />
+        </div>
+
+        <a-form-item
+          v-if="approvalDialog.type === 'approve' && approvalDialog.needsNextAssignee"
+          :label="
+            approvalDialog.nextStepName
+              ? `指定下一节点「${approvalDialog.nextStepName}」处理人`
+              : '指定下一节点处理人'
+          "
+          name="assignee_id"
+          :rules="[{ required: true, message: '请选择下一节点处理人' }]"
+        >
+          <a-select
+            v-model:value="approvalDialog.form.assignee_id"
+            placeholder="请选择下一节点处理人"
+            style="width: 100%"
+            show-search
+            :filter-option="false"
+            option-label-prop="children"
+            :not-found-content="
+              userSelectorLoading
+                ? undefined
+                : userSearchKeyword
+                  ? '无搜索结果'
+                  : '无数据'
+            "
+            @search="handleUserSearch"
+            @dropdown-visible-change="handleUserDropdownChange"
+            allow-clear
+            :loading="userSelectorLoading"
+          >
+            <template #notFoundContent>
+              <div v-if="userSelectorLoading" class="selector-loading">
+                <a-spin size="small" />
+                <span style="margin-left: 8px">加载中...</span>
+              </div>
+              <div v-else class="selector-empty">
+                {{ userSearchKeyword ? '无搜索结果' : '暂无用户数据' }}
+              </div>
+            </template>
+
+            <a-select-option
+              v-for="user in dialogUsers"
+              :key="user.id"
+              :value="user.id"
+            >
+              <div class="user-option">
+                <a-avatar
+                  size="small"
+                  :style="{ backgroundColor: getAvatarColor(user.username) }"
+                >
+                  {{ getInitials(user.username) }}
+                </a-avatar>
+                <span class="user-name">{{ user.username }}</span>
+                <span v-if="user.real_name" class="user-real-name"
+                  >({{ user.real_name }})</span
+                >
+              </div>
+            </a-select-option>
+          </a-select>
+        </a-form-item>
+
         <a-form-item
           :label="approvalDialog.type === 'approve' ? '审批意见' : '拒绝理由'"
           name="comment"
@@ -1737,6 +1875,49 @@
                 : '请输入拒绝理由'
             "
           />
+        </a-form-item>
+
+        <a-form-item
+          v-if="approvalDialog.type === 'approve'"
+          label="附件"
+        >
+          <a-upload
+            :show-upload-list="false"
+            :multiple="true"
+            :before-upload="beforeApprovalUpload"
+            :disabled="
+              approvalUploading ||
+              approvalDialog.attachments.length >= approvalMaxAttachmentCount
+            "
+            accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.log,.md,.docx,.xlsx,.pptx,.zip"
+          >
+            <a-button size="small" :loading="approvalUploading">
+              上传附件
+            </a-button>
+          </a-upload>
+          <div class="approval-attach-hint">
+            最多 {{ approvalMaxAttachmentCount }} 个，单文件 10MB
+          </div>
+          <div
+            v-if="approvalDialog.attachments.length"
+            class="approval-attach-list"
+          >
+            <div
+              v-for="item in approvalDialog.attachments"
+              :key="item.id"
+              class="approval-attach-item"
+            >
+              <span>{{ item.file_name }}</span>
+              <a-button
+                type="link"
+                size="small"
+                danger
+                @click="removeApprovalAttachment(item.id)"
+              >
+                移除
+              </a-button>
+            </div>
+          </div>
         </a-form-item>
       </a-form>
     </a-modal>
@@ -1836,11 +2017,25 @@ import {
   getCurrentStep,
 } from '#/api/core/workorder/workorder_instance';
 
+import {
+  type CommentAttachment,
+  uploadCommentAttachment,
+  deleteCommentAttachment,
+} from '#/api/core/workorder/workorder_instance_comment';
+
 // 导入新的组件
 import WorkorderComments from './components/WorkorderComments.vue';
 import WorkorderTimeline from './components/WorkorderTimeline.vue';
 import WorkorderFlow from './components/WorkorderFlow.vue';
+import LifecycleNodeForm from './components/LifecycleNodeForm.vue';
+import OpsDeliveryPack from '#/views/ops/components/OpsDeliveryPack.vue';
 import './components/workorder-record-dialog.css';
+
+import {
+  approveOpsLifecycleNode,
+  getOpsLifecycleApproveContext,
+  type OpsLifecycleApproveContext,
+} from '#/api/core/ops/customer';
 
 import { type GetUserListReq, getUserList } from '#/api/core/system/user';
 
@@ -1990,9 +2185,15 @@ const canShowClaimAction = (record: WorkorderInstanceItem): boolean => {
   return !record.assignee_id;
 };
 
+/** 未领取时可下发给指定处理人 */
+const canShowDispatchAction = (record: WorkorderInstanceItem): boolean => {
+  return canShowClaimAction(record);
+};
+
 const statusFilter = ref<number | undefined>(undefined);
 const priorityFilter = ref<number | undefined>(undefined);
 const processFilter = ref<number | undefined>(undefined);
+const sourceFilter = ref<string | undefined>(undefined);
 const currentPage = ref(1);
 const pageSize = ref(10);
 const total = ref(0);
@@ -2121,32 +2322,84 @@ const detailDialog = reactive({
 const assignDialog = reactive({
   visible: false,
   instanceId: 0,
-  mode: 'transfer' as 'transfer' | 'forward',
+  mode: 'transfer' as 'transfer' | 'forward' | 'dispatch',
   form: {
     assignee_id: undefined as number | undefined,
     comment: '',
   },
 });
 
-const assignDialogTitle = computed(() =>
-  assignDialog.mode === 'forward' ? '流转到下一节点' : '转办协同',
-);
+const assignDialogTitle = computed(() => {
+  if (assignDialog.mode === 'forward') return '流转到下一节点';
+  if (assignDialog.mode === 'dispatch') return '工单下发';
+  return '转办协同';
+});
 
-const assignDialogHint = computed(() =>
-  assignDialog.mode === 'forward'
-    ? '本节点处理完成后，将工单交给下一级（如硬件工程师）。下一节点处理人会在自己的待办中看到它。'
-    : '当前问题需要同事协同或代为处理时，转办后仍停留在当前节点。',
-);
+const assignDialogHint = computed(() => {
+  if (assignDialog.mode === 'forward') {
+    return '本节点处理完成后，将工单交给下一级。下一节点处理人会在自己的待办中看到它。';
+  }
+  if (assignDialog.mode === 'dispatch') {
+    return '将未领取的工单直接指派给处理人，对方会在待办中看到并可开始处理。';
+  }
+  return '当前问题需要同事协同或代为处理时，转办后仍停留在当前节点。';
+});
 
 // 审批对话框
 const approvalDialog = reactive({
   visible: false,
   instanceId: 0,
   type: 'approve' as 'approve' | 'reject',
+  needsNextAssignee: false,
+  nextStepName: '',
+  attachments: [] as CommentAttachment[],
+  lifecycleEnabled: false,
+  lifecycleNodeKey: '',
+  lifecycleContext: null as OpsLifecycleApproveContext | null,
+  lifecyclePayload: {} as Record<string, any>,
   form: {
     comment: '',
+    assignee_id: undefined as number | undefined,
   },
 });
+
+const lifecycleFormRef = ref<InstanceType<typeof LifecycleNodeForm> | null>(
+  null,
+);
+
+function resolveOpsDeliveryPack(formData: any): {
+  scene: 'trial' | 'formal';
+  bizId: number;
+  contractId: number;
+} | null {
+  if (!formData || typeof formData !== 'object') return null;
+  const bizType = String(formData.ops_biz_type || '');
+  const bizId = Number(formData.ops_biz_id || 0);
+  if (bizId <= 0) return null;
+  const contractId = Number(formData.contract_id || 0);
+  if (bizType === 'trial') return { scene: 'trial', bizId, contractId: 0 };
+  if (bizType === 'activation') {
+    return { scene: 'formal', bizId, contractId: contractId > 0 ? contractId : 0 };
+  }
+  return null;
+}
+
+const detailDeliveryPack = computed(() =>
+  resolveOpsDeliveryPack(detailDialog.instance?.form_data),
+);
+
+const approvalDeliveryPack = computed(() =>
+  resolveOpsDeliveryPack(detailDialog.instance?.form_data),
+);
+
+const approvalUploading = ref(false);
+const approvalMaxAttachmentCount = 5;
+const approvalMaxAttachmentSize = 10 * 1024 * 1024;
+
+const approvalWillComplete = computed(
+  () =>
+    approvalDialog.type === 'approve' && !approvalDialog.needsNextAssignee,
+);
 
 // 操作确认对话框（取消、完成、退回）
 const actionDialog = reactive({
@@ -2209,6 +2462,7 @@ const dialogWidth = computed(() => {
     const width = window.innerWidth;
     if (width < 768) return '95%';
     if (width < 1024) return '80%';
+    if (approvalDialog.lifecycleEnabled) return '720px';
     return '600px';
   }
   return '600px';
@@ -2333,14 +2587,11 @@ const getProcessName = (processId: number): string => {
   return process?.name || `流程${processId}`;
 };
 
-// 检查是否可以删除工单
+// 检查是否可以删除工单：仅创建者
 const canDeleteInstance = (instance: WorkorderInstanceItem): boolean => {
-  // 草稿、已完成、已拒绝状态的工单可以删除
-  return (
-    instance.status === InstanceStatus.Draft ||
-    instance.status === InstanceStatus.Completed ||
-    instance.status === InstanceStatus.Rejected
-  );
+  const uid = currentUserId.value;
+  if (!uid || !instance.operator_id) return false;
+  return Number(instance.operator_id) === uid;
 };
 
 const formatDate = (dateStr: string | undefined) => {
@@ -2952,6 +3203,7 @@ const loadInstances = async () => {
       status: statusFilter.value || undefined,
       priority: priorityFilter.value || undefined,
       process_id: processFilter.value || undefined,
+      source: sourceFilter.value || undefined,
       scope: listScope.value,
     };
 
@@ -3032,6 +3284,7 @@ const handleSearch = handleFilterChange;
 const handleStatusChange = handleFilterChange;
 const handlePriorityChange = handleFilterChange;
 const handleProcessChange = handleFilterChange;
+const handleSourceChange = handleFilterChange;
 const handleScopeChange = () => {
   currentPage.value = 1;
   statusFilter.value = undefined;
@@ -3047,6 +3300,7 @@ const handleExport = async () => {
       status: statusFilter.value || undefined,
       priority: priorityFilter.value || undefined,
       process_id: processFilter.value || undefined,
+      source: sourceFilter.value || undefined,
       scope: listScope.value,
     })) as Blob;
     const text = await blob.text();
@@ -3492,6 +3746,9 @@ const handleCommand = async (command: string, row: WorkorderInstanceItem) => {
     case 'claim':
       await handleActionClaim(row);
       break;
+    case 'dispatch':
+      await handleActionDispatch(row);
+      break;
     case 'approve':
       await handleActionApprove(row);
       break;
@@ -3636,6 +3893,11 @@ const handleActionAssign = (instance: WorkorderInstanceItem) =>
     showAssignDialog(inst, 'transfer'),
   );
 
+const handleActionDispatch = (instance: WorkorderInstanceItem) =>
+  handleActionWithPermission(instance, 'assign', (inst) =>
+    showAssignDialog(inst, 'dispatch'),
+  );
+
 const handleActionForward = (instance: WorkorderInstanceItem) =>
   handleActionWithPermission(instance, 'assign', (inst) =>
     showAssignDialog(inst, 'forward'),
@@ -3706,7 +3968,7 @@ const handleSubmitInstance = async (instance: WorkorderInstanceItem) => {
 
 const showAssignDialog = (
   instance: WorkorderInstanceItem,
-  mode: 'transfer' | 'forward' = 'transfer',
+  mode: 'transfer' | 'forward' | 'dispatch' = 'transfer',
 ) => {
   assignDialog.instanceId = instance.id;
   assignDialog.mode = mode;
@@ -3745,11 +4007,14 @@ const saveAssign = async () => {
     }
 
     loading.value = true;
+    const apiMode = assignDialog.mode === 'forward' ? 'forward' : 'transfer';
     const params: AssignWorkorderInstanceReq = {
       id: assignDialog.instanceId,
       assignee_id: Number(assignDialog.form.assignee_id),
-      mode: assignDialog.mode,
-      comment: assignDialog.form.comment || undefined,
+      mode: apiMode,
+      comment:
+        assignDialog.form.comment ||
+        (assignDialog.mode === 'dispatch' ? '工单下发' : undefined),
     };
 
     await assignWorkorderInstance(params);
@@ -3761,11 +4026,13 @@ const saveAssign = async () => {
       ? assignedUser.real_name || assignedUser.username
       : '未知用户';
 
-    message.success(
+    const successMsg =
       assignDialog.mode === 'forward'
         ? `已流转给 ${assigneeName}`
-        : `已转办给 ${assigneeName}`,
-    );
+        : assignDialog.mode === 'dispatch'
+          ? `已下发给 ${assigneeName}`
+          : `已转办给 ${assigneeName}`;
+    message.success(successMsg);
 
     assignDialog.visible = false;
     await syncStepStatus(assignDialog.instanceId, 'assign');
@@ -3879,19 +4146,32 @@ const isDeadlineUrgent = (deadline: string): boolean => {
 
 // 获取步骤提示信息
 const getStepMessage = (): string => {
-  const stepName = detailDialog.currentStep?.name || '当前步骤';
-  const isEndStep = detailDialog.currentStep?.type === 'end';
+  const stepName =
+    approvalDialog.lifecycleContext?.current_step_name ||
+    detailDialog.currentStep?.name ||
+    '当前步骤';
   const isApprove = approvalDialog.type === 'approve';
+  const nodeKey = approvalDialog.lifecycleNodeKey || '';
 
   if (isApprove) {
-    if (isEndStep) {
-      return `当前步骤：${stepName}（最后一步）。审批通过后将完成整个工单流程。`;
-    } else {
-      return `当前步骤：${stepName}。审批通过后将流转到下一个处理步骤。`;
+    if (approvalDialog.lifecycleEnabled) {
+      if (nodeKey === 'trial_accept') {
+        return approvalDialog.needsNextAssignee
+          ? `当前步骤：${stepName}。请指定「${approvalDialog.nextStepName || '下一节点'}」处理人。`
+          : `当前步骤：${stepName}`;
+      }
+      const nextHint = approvalDialog.needsNextAssignee
+        ? `请登记本节点运营信息，并指定「${approvalDialog.nextStepName || '下一节点'}」处理人。`
+        : '请登记本节点运营信息，通过后将完成工单。';
+      return `当前步骤：${stepName}。${nextHint}`;
     }
-  } else {
-    return `当前步骤：${stepName}。拒绝后工单将退回到上一步或结束流程。`;
+    if (approvalDialog.needsNextAssignee) {
+      const nextName = approvalDialog.nextStepName || '下一节点';
+      return `当前步骤：${stepName}。审批通过时请指定「${nextName}」的处理人，对方将直接收到待办。`;
+    }
+    return `当前步骤：${stepName}。审批通过后将完成整个工单流程。`;
   }
+  return `当前步骤：${stepName}。拒绝后工单将退回到上一步或结束流程。`;
 };
 
 // 保存操作备注（取消、完成、退回）
@@ -3945,13 +4225,274 @@ const saveActionComment = async () => {
   }
 };
 
-const showApprovalDialog = (
+const resolveApprovalNextStep = async (instance: WorkorderInstanceItem) => {
+  approvalDialog.needsNextAssignee = false;
+  approvalDialog.nextStepName = '';
+
+  try {
+    if (
+      !(
+        detailDialog.instance?.id === instance.id &&
+        detailDialog.processDefinition
+      )
+    ) {
+      await loadProcessStepsNavigation(instance);
+    }
+
+    if (!detailDialog.currentStep) {
+      try {
+        detailDialog.currentStep = await getCurrentStep(instance.id);
+      } catch {
+        // 步骤提示可选
+      }
+    }
+
+    const currentStepId =
+      detailDialog.currentStep?.id || instance.current_step_id;
+    const definition = detailDialog.processDefinition;
+    if (!currentStepId || !definition?.steps?.length) {
+      return;
+    }
+
+    const connection = (definition.connections || []).find(
+      (item) => item.from === currentStepId,
+    );
+    const next =
+      connection != null
+        ? definition.steps.find((step) => step.id === connection.to)
+        : detailDialog.nextStep;
+
+    if (next && next.type !== 'end') {
+      approvalDialog.needsNextAssignee = true;
+      approvalDialog.nextStepName = next.name || '';
+    }
+  } catch {
+    // 无法解析下一节点时，仍允许打开弹窗，由后端校验
+  }
+};
+
+const closeApprovalDialog = async () => {
+  for (const item of approvalDialog.attachments) {
+    try {
+      await deleteCommentAttachment(item.id);
+    } catch {
+      // ignore
+    }
+  }
+  approvalDialog.visible = false;
+  approvalDialog.attachments = [];
+  approvalDialog.form.comment = '';
+  approvalDialog.form.assignee_id = undefined;
+  approvalDialog.needsNextAssignee = false;
+  approvalDialog.nextStepName = '';
+  approvalDialog.lifecycleEnabled = false;
+  approvalDialog.lifecycleNodeKey = '';
+  approvalDialog.lifecycleContext = null;
+  approvalDialog.lifecyclePayload = {};
+};
+
+const beforeApprovalUpload = async (file: File & { originFileObj?: File }) => {
+  if (!approvalDialog.instanceId) {
+    message.warning('工单信息不存在');
+    return false;
+  }
+  const rawFile = file.originFileObj || file;
+  if (approvalDialog.attachments.length >= approvalMaxAttachmentCount) {
+    message.warning(`最多上传 ${approvalMaxAttachmentCount} 个附件`);
+    return false;
+  }
+  if (rawFile.size > approvalMaxAttachmentSize) {
+    message.warning('单文件不能超过 10MB');
+    return false;
+  }
+  try {
+    approvalUploading.value = true;
+    const res = await uploadCommentAttachment(
+      approvalDialog.instanceId,
+      rawFile,
+    );
+    approvalDialog.attachments.push(res);
+    message.success(`已添加 ${rawFile.name || file.name}`);
+  } catch (error: any) {
+    const msg =
+      typeof error === 'string'
+        ? error
+        : error?.message || error?.msg || '未知错误';
+    message.error(`上传失败: ${msg}`);
+  } finally {
+    approvalUploading.value = false;
+  }
+  return false;
+};
+
+const removeApprovalAttachment = async (id: number) => {
+  try {
+    await deleteCommentAttachment(id);
+  } catch {
+    // 本地移除即可
+  }
+  approvalDialog.attachments = approvalDialog.attachments.filter(
+    (item) => item.id !== id,
+  );
+};
+
+const defaultLifecyclePayload = (
+  nodeKey: string,
+  ctx: OpsLifecycleApproveContext,
+): Record<string, any> => {
+  const customerName = ctx.customer_name || '客户';
+  const act = ctx.latest_activation || {};
+  const trial = ctx.latest_trial || {};
+  const contract = ctx.latest_contract || {};
+  const ledgerBase = () => {
+    const src: any =
+      nodeKey === 'contract' || nodeKey === 'trial_contract' ? act : trial;
+    const start =
+      src.contract_start_at ||
+      contract.start_at ||
+      undefined;
+    const end =
+      src.contract_end_at ||
+      contract.end_at ||
+      undefined;
+    return {
+      customer_short_name: src.customer_short_name || customerName,
+      product_type: src.product_type || contract.product_type || undefined,
+      region: src.region || undefined,
+      owner_name: src.owner_name || undefined,
+      main_account: src.main_account || src.feedback_account || undefined,
+      project_name: src.project_name || undefined,
+      open_method:
+        src.open_method ||
+        (nodeKey === 'contract' ? 'formal' : 'trial'),
+      contract_no: src.contract_no || contract.contract_no || undefined,
+      order_no: src.order_no || undefined,
+      open_period: src.open_period || undefined,
+      contract_start_at: start ? String(start).slice(0, 10) : undefined,
+      contract_end_at: end ? String(end).slice(0, 10) : undefined,
+      lease_mode:
+        nodeKey === 'contract' ? 'full' : 'temp_test',
+      allocated_gpus: 1,
+      opened_at: start ? String(start).slice(0, 10) : undefined,
+      plan_release_at: end ? String(end).slice(0, 10) : undefined,
+    };
+  };
+  switch (nodeKey) {
+    case 'trial':
+      return { title: `${customerName}-试用` };
+    case 'contract':
+      return {
+        title: `${customerName}-正式合同`,
+        type: 'formal',
+        payment_term_days: 30,
+        auto_renew: 2,
+        trial_id: ctx.latest_trial?.id,
+        ...ledgerBase(),
+      };
+    case 'trial_contract':
+      return {
+        title: `${customerName}-试用合同`,
+        type: 'trial',
+        ...ledgerBase(),
+      };
+    case 'provision':
+      return {
+        title: trial.title || `${customerName}-测试开通`,
+        ...ledgerBase(),
+      };
+    case 'settlement':
+      return {
+        title: `${customerName}-结算`,
+        contract_id: ctx.latest_contract?.id,
+        amount: ctx.latest_contract?.unit_price || 0,
+      };
+    case 'payment':
+      return {
+        settlement_id: ctx.latest_settlement?.id,
+        amount: ctx.latest_settlement?.amount || 0,
+        invoice_amount: ctx.latest_settlement?.amount || 0,
+      };
+    case 'trial_accept': {
+      const trialIncomplete =
+        !String(trial.product_type || '').trim() ||
+        !String(trial.project_name || '').trim() ||
+        !String(trial.customer_short_name || '').trim() ||
+        !String(trial.region || '').trim();
+      return {
+        evaluation: ctx.latest_trial?.evaluation || '',
+        convert_intent: ctx.latest_trial?.convert_intent || undefined,
+        ...(trialIncomplete ? ledgerBase() : {}),
+      };
+    }
+    case 'open_feedback':
+      return {
+        feedback_account: act.main_account || act.feedback_account || undefined,
+        feedback_tenant: act.feedback_tenant || undefined,
+        feedback_endpoint: act.feedback_endpoint || undefined,
+        lease_mode: 'full',
+        allocated_gpus: 1,
+        opened_at: ledgerBase().opened_at,
+        plan_release_at: ledgerBase().plan_release_at,
+        contract_start_at: ledgerBase().contract_start_at,
+        contract_end_at: ledgerBase().contract_end_at,
+      };
+    default:
+      return {};
+  }
+};
+
+const showApprovalDialog = async (
   instance: WorkorderInstanceItem,
   type: 'approve' | 'reject',
 ) => {
   approvalDialog.instanceId = instance.id;
   approvalDialog.type = type;
   approvalDialog.form.comment = '';
+  approvalDialog.form.assignee_id = undefined;
+  approvalDialog.attachments = [];
+  approvalDialog.needsNextAssignee = false;
+  approvalDialog.nextStepName = '';
+  approvalDialog.lifecycleEnabled = false;
+  approvalDialog.lifecycleNodeKey = '';
+  approvalDialog.lifecycleContext = null;
+  approvalDialog.lifecyclePayload = {};
+
+  if (type === 'approve') {
+    // 运营全流程：加载节点台账表单
+    try {
+      const ctx = await getOpsLifecycleApproveContext(instance.id);
+      if (ctx?.node_key) {
+        approvalDialog.lifecycleEnabled = true;
+        approvalDialog.lifecycleContext = ctx;
+        approvalDialog.lifecycleNodeKey = ctx.node_key;
+        approvalDialog.needsNextAssignee = !!ctx.needs_next_assignee;
+        approvalDialog.nextStepName = ctx.next_step_name || '';
+        approvalDialog.lifecyclePayload = defaultLifecyclePayload(
+          ctx.node_key,
+          ctx,
+        );
+        if (!detailDialog.currentStep) {
+          detailDialog.currentStep = {
+            id: ctx.current_step_id,
+            name: ctx.current_step_name,
+          } as any;
+        }
+        if (approvalDialog.needsNextAssignee) {
+          loadDialogUsers(true);
+        }
+        approvalDialog.visible = true;
+        return;
+      }
+    } catch {
+      // 非生命周期工单走普通审批
+    }
+
+    await resolveApprovalNextStep(instance);
+    if (approvalDialog.needsNextAssignee) {
+      loadDialogUsers(true);
+    }
+  }
+
   approvalDialog.visible = true;
 };
 
@@ -3965,46 +4506,88 @@ const saveApproval = async () => {
       return;
     }
 
+    if (
+      approvalDialog.type === 'approve' &&
+      approvalDialog.needsNextAssignee &&
+      !approvalDialog.form.assignee_id
+    ) {
+      message.error('请选择下一节点处理人');
+      return;
+    }
+
+    if (
+      approvalDialog.type === 'approve' &&
+      approvalDialog.lifecycleEnabled
+    ) {
+      const errMsg = lifecycleFormRef.value?.validate?.();
+      if (errMsg) {
+        message.error(errMsg);
+        return;
+      }
+    }
+
     loading.value = true;
 
     if (approvalDialog.type === 'approve') {
-      // 检查当前步骤信息，判断是审批流转还是完成工单
-      if (detailDialog.currentStep?.type === 'end') {
-        // 如果是结束步骤，确认是否要完成工单
+      const doApprove = async () => {
+        if (approvalDialog.lifecycleEnabled) {
+          const payload = {
+            ...(approvalDialog.lifecyclePayload || {}),
+            ...(lifecycleFormRef.value?.getPayload?.() || {}),
+          };
+          await approveOpsLifecycleNode({
+            instance_id: approvalDialog.instanceId,
+            comment: approvalDialog.form.comment,
+            assignee_id: approvalDialog.form.assignee_id,
+            attachment_ids: approvalDialog.attachments.map((item) => item.id),
+            payload,
+          });
+        } else {
+          const params: ApproveWorkorderInstanceReq = {
+            id: approvalDialog.instanceId,
+            comment: approvalDialog.form.comment,
+            attachment_ids: approvalDialog.attachments.map((item) => item.id),
+          };
+          if (
+            approvalDialog.needsNextAssignee &&
+            approvalDialog.form.assignee_id
+          ) {
+            params.assignee_id = approvalDialog.form.assignee_id;
+          }
+          await approveWorkorderInstance(params);
+        }
+        message.success(
+          approvalDialog.needsNextAssignee
+            ? approvalDialog.lifecycleEnabled
+              ? '审批通过，运营台账已登记并流转'
+              : '审批通过，已流转并指定下一节点处理人'
+            : '审批通过，工单已完成',
+        );
+        approvalDialog.attachments = [];
+        approvalDialog.visible = false;
+        await syncStepStatus(approvalDialog.instanceId, 'approve');
+      };
+
+      if (!approvalDialog.needsNextAssignee) {
         Modal.confirm({
           title: '审批确认',
-          content:
-            '当前是最后一个审批步骤，审批通过后将完成工单。确定要继续吗？',
+          content: approvalDialog.lifecycleEnabled
+            ? '当前是最后节点，通过后将写入本节点台账并完成工单。确定继续吗？'
+            : '当前是最后一个审批步骤，审批通过后将完成工单。确定要继续吗？',
           okText: '确定审批并完成',
           cancelText: '取消',
           onOk: async () => {
             try {
-              const params: ApproveWorkorderInstanceReq = {
-                id: approvalDialog.instanceId,
-                comment: approvalDialog.form.comment,
-              };
-              await approveWorkorderInstance(params);
-              message.success('审批通过，工单已完成');
-
-              approvalDialog.visible = false;
-
-              // 使用新的同步机制
-              await syncStepStatus(approvalDialog.instanceId, 'approve');
+              await doApprove();
             } catch (error: any) {
               message.error(`审批失败: ${error.message || '未知错误'}`);
             }
           },
         });
-        return; // 等待用户确认，不继续执行后面的代码
-      } else {
-        // 普通审批步骤，正常流转
-        const params: ApproveWorkorderInstanceReq = {
-          id: approvalDialog.instanceId,
-          comment: approvalDialog.form.comment,
-        };
-        await approveWorkorderInstance(params);
-        message.success('审批通过，工单已流转到下一步');
+        return;
       }
+
+      await doApprove();
     } else {
       const params: RejectWorkorderInstanceReq = {
         id: approvalDialog.instanceId,
@@ -4012,14 +4595,9 @@ const saveApproval = async () => {
       };
       await rejectWorkorderInstance(params);
       message.success('拒绝工单成功');
+      approvalDialog.visible = false;
+      await syncStepStatus(approvalDialog.instanceId, 'reject');
     }
-
-    approvalDialog.visible = false;
-
-    // 使用新的同步机制
-    const operationType =
-      approvalDialog.type === 'approve' ? 'approve' : 'reject';
-    await syncStepStatus(approvalDialog.instanceId, operationType);
   } catch (error: any) {
     message.error(
       `${approvalDialog.type === 'approve' ? '审批' : '拒绝'}失败: ${error.message || '未知错误'}`,
@@ -5322,6 +5900,29 @@ onMounted(async () => {
 /* 审批步骤信息样式 */
 .approval-step-info {
   margin-bottom: 16px;
+}
+
+.approval-attach-hint {
+  margin-top: 6px;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+}
+
+.approval-attach-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.approval-attach-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 4px;
+  font-size: 13px;
 }
 
 .approval-step-info .ant-alert {

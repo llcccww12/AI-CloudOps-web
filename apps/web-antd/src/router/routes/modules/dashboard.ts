@@ -2,6 +2,7 @@ import type { RouteRecordRaw } from 'vue-router';
 
 import { BasicLayout } from '#/layouts';
 import { $t } from '#/locales';
+import { AuthoritySystem } from '#/constants/roles';
 
 const routes: RouteRecordRaw[] = [
   {
@@ -20,8 +21,8 @@ const routes: RouteRecordRaw[] = [
         component: () => import('#/views/dashboard/SystemWelcome.vue'),
         meta: {
           affixTab: true,
-          icon: 'lucide:area-chart',
-          title: '欢迎页',
+          icon: 'lucide:monitor',
+          title: '运营大屏',
         },
       },
       {
@@ -29,6 +30,7 @@ const routes: RouteRecordRaw[] = [
         path: '/system_user',
         component: () => import('#/views/dashboard/SystemUser.vue'),
         meta: {
+          authority: AuthoritySystem,
           icon: 'lucide:user',
           title: '用户管理',
         },
@@ -38,6 +40,7 @@ const routes: RouteRecordRaw[] = [
         path: '/system_api',
         component: () => import('#/views/dashboard/SystemApi.vue'),
         meta: {
+          authority: AuthoritySystem,
           title: '接口管理',
           icon: 'lucide:zap',
         },
@@ -47,6 +50,7 @@ const routes: RouteRecordRaw[] = [
         path: '/system_role',
         component: () => import('#/views/dashboard/SystemRole.vue'),
         meta: {
+          authority: AuthoritySystem,
           icon: 'lucide:users',
           title: '角色管理',
         },
@@ -56,6 +60,7 @@ const routes: RouteRecordRaw[] = [
         path: '/system_department',
         component: () => import('#/views/dashboard/SystemDepartment.vue'),
         meta: {
+          authority: AuthoritySystem,
           icon: 'lucide:building-2',
           title: '部门管理',
         },
@@ -65,6 +70,7 @@ const routes: RouteRecordRaw[] = [
         path: '/system_audit',
         component: () => import('#/views/dashboard/SystemAudit.vue'),
         meta: {
+          authority: AuthoritySystem,
           icon: 'lucide:file-text',
           title: '审计日志',
         },

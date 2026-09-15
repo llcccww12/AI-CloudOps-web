@@ -1,4 +1,5 @@
 import { requestClientAIOps } from '#/api/request';
+import type { KnowledgeDomain, KnowledgeDomainFilter } from '#/constants/knowledge-domain';
 
 // 智能助手请求模型
 export interface AssistantRequest {
@@ -7,6 +8,7 @@ export interface AssistantRequest {
   chat_history?: Array<{ [key: string]: string }>; // 对话历史记录
   use_web_search?: boolean; // 是否使用网络搜索增强回答
   session_id?: string; // 会话ID，为空则创建新会话
+  domain?: KnowledgeDomain; // 知识域
 }
 
 // 添加文档请求模型
@@ -15,6 +17,7 @@ export interface AddDocumentRequest {
   content: string; // 文档内容
   file_name: string; // 文件名，必须包含文件扩展名
   use_when?: string; // 适用场景 / 何时查阅
+  domain?: KnowledgeDomain;
 }
 
 export interface KnowledgeDocumentItem {
@@ -30,6 +33,7 @@ export interface KnowledgeDocumentItem {
   document_count?: number;
   created_at?: string;
   updated_at?: string;
+  domain?: KnowledgeDomain;
 }
 
 export interface KnowledgeDocumentsResponse {
@@ -37,6 +41,7 @@ export interface KnowledgeDocumentsResponse {
   documents_count: number;
   vector_count: number;
   knowledge_base_path?: string;
+  domain?: KnowledgeDomain;
   timestamp: string;
 }
 
@@ -146,8 +151,10 @@ export async function getSessionInfo(session_id: string) {
 }
 
 // 刷新知识库
-export async function refreshKnowledgeBase() {
-  return requestClientAIOps.post('/assistant/refresh');
+export async function refreshKnowledgeBase(domain?: KnowledgeDomain) {
+  return requestClientAIOps.post('/assistant/refresh', null, {
+    params: domain ? { domain } : undefined,
+  });
 }
 
 // 健康检查
@@ -168,12 +175,13 @@ export async function clearAssistantCache() {
 // 上传知识库文件
 export async function uploadKnowledgeFile(
   file: File,
-  options?: { title?: string; use_when?: string },
+  options?: { title?: string; use_when?: string; domain?: KnowledgeDomain },
 ) {
   const formData = new FormData();
   formData.append('file', file);
   if (options?.title) formData.append('title', options.title);
   if (options?.use_when) formData.append('use_when', options.use_when);
+  formData.append('domain', options?.domain || 'sre');
   return requestClientAIOps.post('/assistant/upload-knowledge-file', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
@@ -185,8 +193,13 @@ export async function addDocument(data: AddDocumentRequest) {
 }
 
 // 列出知识库文档目录
-export async function listKnowledgeDocuments() {
-  return requestClientAIOps.get<KnowledgeDocumentsResponse>('/assistant/knowledge/documents');
+export async function listKnowledgeDocuments(
+  domain: KnowledgeDomainFilter = 'all',
+) {
+  return requestClientAIOps.get<KnowledgeDocumentsResponse>(
+    '/assistant/knowledge/documents',
+    { params: { domain } },
+  );
 }
 
 export interface KnowledgeDocumentDetail extends KnowledgeDocumentItem {
@@ -201,10 +214,13 @@ export interface UpdateKnowledgeDocumentRequest {
 }
 
 // 查看知识库文档
-export async function getKnowledgeDocument(documentKey: string) {
+export async function getKnowledgeDocument(
+  documentKey: string,
+  domain: KnowledgeDomain = 'sre',
+) {
   return requestClientAIOps.get<KnowledgeDocumentDetail>(
     '/assistant/knowledge/document',
-    { params: { key: documentKey } },
+    { params: { key: documentKey, domain } },
   );
 }
 
@@ -212,16 +228,20 @@ export async function getKnowledgeDocument(documentKey: string) {
 export async function updateKnowledgeDocument(
   documentKey: string,
   data: UpdateKnowledgeDocumentRequest,
+  domain: KnowledgeDomain = 'sre',
 ) {
   return requestClientAIOps.put('/assistant/knowledge/document', data, {
-    params: { key: documentKey },
+    params: { key: documentKey, domain },
   });
 }
 
 // 删除知识库文档
-export async function deleteKnowledgeDocument(documentKey: string) {
+export async function deleteKnowledgeDocument(
+  documentKey: string,
+  domain: KnowledgeDomain = 'sre',
+) {
   return requestClientAIOps.delete('/assistant/knowledge/document', {
-    params: { key: documentKey },
+    params: { key: documentKey, domain },
   });
 }
 

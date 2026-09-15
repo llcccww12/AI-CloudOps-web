@@ -1,13 +1,16 @@
 import type { RouteRecordRaw } from 'vue-router';
+import { RouterView } from 'vue-router';
 
 import { BasicLayout } from '#/layouts';
+import { AuthorityCommon } from '#/constants/roles';
 
 const routes: RouteRecordRaw[] = [
   {
     component: BasicLayout,
     meta: {
-      icon: 'lucide:album',
-      order: 20,
+      authority: AuthorityCommon,
+      icon: 'lucide:bot',
+      order: 0,
       title: '智能助手',
     },
     name: 'Assistant',

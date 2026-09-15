@@ -15,6 +15,13 @@
       </div>
     </div>
 
+    <a-alert
+      type="info"
+      show-icon
+      style="margin-bottom: 16px"
+      message="菜单权限靠角色编码：admin=全部，ops=运营+工单+助手，sre=工单+助手（运维菜单已下线）。助手知识库按运营/运维域隔离。分配角色后重新登录生效；接口权限仍在下方勾选。"
+    />
+
     <!-- 统计卡片 -->
     <div class="stats-grid">
       <div class="stat-card">

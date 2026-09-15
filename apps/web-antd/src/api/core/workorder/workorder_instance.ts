@@ -108,6 +108,7 @@ export interface ListWorkorderInstanceReq {
   status?: number; // 状态
   priority?: number; // 优先级
   process_id?: number; // 流程ID
+  source?: string; // 来源
   scope?: WorkorderInstanceScope; // 列表范围
 }
 
@@ -138,6 +139,8 @@ export interface AssignWorkorderInstanceReq {
 export interface ApproveWorkorderInstanceReq {
   id: number; // ID
   comment?: string; // 审批意见
+  assignee_id?: number; // 下一节点处理人（有后续节点时必填）
+  attachment_ids?: number[]; // 审批附件
 }
 
 // 拒绝工单请求

@@ -1,4 +1,4 @@
-import { initPreferences } from '@vben/preferences';
+import { initPreferences, updatePreferences } from '@vben/preferences';
 import { unmountGlobalLoading } from '@vben/utils';
 import { overridesPreferences } from './preferences';
 
@@ -17,6 +17,8 @@ async function initApplication() {
     namespace,
     overrides: overridesPreferences,
   });
+  // 覆盖本地缓存里的「内容定宽」，避免宽屏右侧留白
+  updatePreferences({ app: { contentCompact: 'wide' } });
 
   // 启动应用并挂载
   // vue应用主要逻辑及视图

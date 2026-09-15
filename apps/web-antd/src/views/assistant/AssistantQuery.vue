@@ -13,20 +13,28 @@
           </div>
         </div>
         <div class="header-actions">
-          <a-space>
-            <a-button @click="clearSession" type="default">
-              <Icon icon="lucide:trash-2" size="16" color="#8c8c8c" />
-              清空会话
-            </a-button>
-            <a-button @click="exportSession" type="default">
-              <Icon icon="lucide:download" size="16" color="#8c8c8c" />
-              导出会话
-            </a-button>
-            <a-button @click="goToSessionManage" type="primary">
-              <Icon icon="lucide:users" size="16" color="#ffffff" />
-              会话管理
-            </a-button>
-          </a-space>
+          <div class="header-toolbar">
+            <a-segmented
+              v-model:value="knowledgeDomain"
+              size="middle"
+              :options="domainSegmentOptions"
+            />
+            <div class="toolbar-divider" />
+            <div class="toolbar-actions">
+              <button type="button" class="toolbar-btn" @click="clearSession">
+                <Icon icon="lucide:trash-2" width="16" height="16" />
+                <span>清空</span>
+              </button>
+              <button type="button" class="toolbar-btn" @click="exportSession">
+                <Icon icon="lucide:download" width="16" height="16" />
+                <span>导出</span>
+              </button>
+              <button type="button" class="toolbar-btn toolbar-btn-primary" @click="goToSessionManage">
+                <Icon icon="lucide:messages-square" width="16" height="16" />
+                <span>会话</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -59,16 +67,16 @@
                       <div class="message-text">{{ message.content }}</div>
                       <div class="message-time">{{ formatTime(message.timestamp) }}</div>
                     </div>
-                    <a-avatar class="message-avatar" style="background-color: #1890ff;">
-                      <Icon icon="lucide:user" size="16" />
-                    </a-avatar>
+                    <div class="message-avatar message-avatar--user" aria-hidden="true">
+                      <Icon icon="lucide:user" size="18" />
+                    </div>
                   </div>
 
                   <!-- 助手消息 -->
                   <div v-else class="assistant-message">
-                    <a-avatar class="message-avatar" style="background-color: #52c41a;">
-                      <Icon icon="lucide:bot" size="16" />
-                    </a-avatar>
+                    <div class="message-avatar message-avatar--assistant" aria-hidden="true">
+                      <Icon icon="lucide:sparkles" size="18" />
+                    </div>
                     <div class="message-content">
                       <div class="message-text" v-html="formatMarkdown(message.content)"></div>
                       <div class="message-time">{{ formatTime(message.timestamp) }}</div>
@@ -110,9 +118,9 @@
 
                 <!-- 加载中状态 -->
                 <div v-if="isLoading" class="loading-message">
-                  <a-avatar class="message-avatar" style="background-color: #52c41a;">
-                    <Icon icon="lucide:bot" size="16" />
-                  </a-avatar>
+                  <div class="message-avatar message-avatar--assistant" aria-hidden="true">
+                    <Icon icon="lucide:sparkles" size="18" />
+                  </div>
                   <div class="message-content">
                     <a-spin size="small" />
                     <span class="loading-text">正在思考中...</span>
@@ -150,6 +158,11 @@
               <div class="info-item">
                 <label class="form-label">会话ID</label>
                 <div class="form-value">{{ currentSessionId || '新会话' }}</div>
+              </div>
+
+              <div class="info-item">
+                <label class="form-label">知识域</label>
+                <div class="form-value">{{ knowledgeDomainLabel(knowledgeDomain) }}</div>
               </div>
 
               <div class="info-item">
@@ -215,7 +228,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted } from 'vue';
+import { computed, ref, nextTick, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { message } from 'ant-design-vue';
 import { Icon } from '@iconify/vue';
@@ -223,9 +236,30 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { assistantQuery } from '#/api/core/aiops/assistant';
 import type { AssistantRequest, AssistantResponse } from '#/api/core/aiops/assistant';
+import {
+  knowledgeDomainLabel,
+  resolveAvailableKnowledgeDomains,
+  resolveDefaultKnowledgeDomain,
+  type KnowledgeDomain,
+} from '#/constants/knowledge-domain';
+import { useUserStore } from '@vben/stores';
 
 // 路由
 const router = useRouter();
+const userStore = useUserStore();
+
+const availableDomains = computed(() =>
+  resolveAvailableKnowledgeDomains(userStore.userInfo?.roles as string[] | undefined),
+);
+const knowledgeDomain = ref<KnowledgeDomain>(
+  resolveDefaultKnowledgeDomain(userStore.userInfo?.roles as string[] | undefined),
+);
+const domainSegmentOptions = computed(() =>
+  availableDomains.value.map((value) => ({
+    value,
+    label: knowledgeDomainLabel(value),
+  })),
+);
 
 // 响应式数据
 const questionInput = ref('');
@@ -290,6 +324,7 @@ const sendMessage = async () => {
       mode: assistantMode.value,
       use_web_search: useWebSearch.value,
       session_id: currentSessionId.value || undefined,
+      domain: knowledgeDomain.value,
       chat_history: chatHistory.value.slice(0, -1).map(msg => ({
         [msg.role]: msg.content
       }))
@@ -515,6 +550,62 @@ onMounted(() => {
   display: flex;
   gap: 12px;
   align-items: center;
+  flex-shrink: 0;
+}
+
+.query-container .header-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.query-container .toolbar-divider {
+  width: 1px;
+  height: 28px;
+  background: #f0f0f0;
+}
+
+.query-container .toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: #f7f8fa;
+  border-radius: 10px;
+  border: 1px solid #eef0f3;
+}
+
+.query-container .toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  color: #595959;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.query-container .toolbar-btn:hover {
+  background: #fff;
+  color: #262626;
+}
+
+.query-container .toolbar-btn-primary {
+  background: #fff;
+  color: #1677ff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.query-container .toolbar-btn-primary:hover {
+  color: #0958d9;
 }
 
 /* 内容区域 */
@@ -587,24 +678,50 @@ onMounted(() => {
       }
     }
 
+    .message-avatar {
+      flex-shrink: 0;
+      width: 36px;
+      height: 36px;
+      margin-top: 2px;
+      border-radius: 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+
+      &--user {
+        color: #1a56db;
+        background: linear-gradient(160deg, #eef4ff 0%, #dbe7ff 100%);
+        border: 1px solid rgba(47, 111, 237, 0.22);
+        box-shadow: 0 1px 2px rgba(26, 86, 219, 0.08);
+      }
+
+      &--assistant {
+        color: #0f766e;
+        background: linear-gradient(160deg, #ecfdf8 0%, #d1fae5 100%);
+        border: 1px solid rgba(15, 118, 110, 0.2);
+        box-shadow: 0 1px 2px rgba(15, 118, 110, 0.08);
+      }
+    }
+
     .user-message {
       display: flex;
       justify-content: flex-end;
       align-items: flex-start;
-      gap: 12px;
+      gap: 10px;
 
       .message-content {
         max-width: 70%;
 
         .message-text {
-          background: var(--primary-color, #1890ff);
+          background: linear-gradient(135deg, #2f6fed 0%, #1a56db 100%);
           color: #ffffff;
           padding: 12px 16px;
-          border-radius: 16px;
-          border-bottom-right-radius: 4px;
+          border-radius: 16px 16px 4px 16px;
           word-wrap: break-word;
           font-size: 14px;
           line-height: 1.5;
+          box-shadow: 0 1px 2px rgba(26, 86, 219, 0.18);
         }
 
         .message-time {
@@ -620,21 +737,21 @@ onMounted(() => {
       display: flex;
       justify-content: flex-start;
       align-items: flex-start;
-      gap: 12px;
+      gap: 10px;
 
       .message-content {
         max-width: 70%;
 
         .message-text {
-          background: var(--bg-color-light, #fafafa);
+          background: #ffffff;
           color: var(--text-color-primary, #262626);
           padding: 12px 16px;
-          border-radius: 16px;
-          border-bottom-left-radius: 4px;
+          border-radius: 16px 16px 16px 4px;
           word-wrap: break-word;
           font-size: 14px;
           line-height: 1.5;
-          border: 1px solid var(--border-color, #f0f0f0);
+          border: 1px solid #ebecef;
+          box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 
           :deep(h1),
           :deep(h2),
@@ -735,13 +852,14 @@ onMounted(() => {
     .loading-message {
       display: flex;
       justify-content: flex-start;
-      align-items: center;
-      gap: 12px;
+      align-items: flex-start;
+      gap: 10px;
 
       .message-content {
         display: flex;
         align-items: center;
         gap: 8px;
+        min-height: 36px;
       }
 
       .loading-text {
